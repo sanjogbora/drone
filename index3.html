@@ -1,0 +1,2816 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlytBase Museum Security Prototype v2.3.4 (Analyst Scroll Fix v2)</title>
+    <style>
+        :root {
+            --critical-color: #C80000;
+            --warning-color: #FFAA00;
+            --info-color: #6E6E6E;
+            --primary-bg: #f0f2f5;
+            --secondary-bg: #ffffff;
+            --text-color: #333333;
+            --border-color: #cccccc;
+            --highlight-color: #007bff;
+            --drone-chip-bg: #aaddff;
+            --room-highlight-color: rgba(0, 123, 255, 0.3);
+            --critical-room-highlight-color: rgba(200, 0, 0, 0.4);
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            background-color: var(--primary-bg);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .hide {
+            display: none !important;
+        }
+
+        #appHeader {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            background-color: #333;
+            color: white;
+        }
+
+        #appHeader label {
+            margin-right: 10px;
+        }
+
+        #rolePicker {
+            padding: 5px;
+            border-radius: 4px;
+            margin-right: auto;
+        }
+
+        #statusStrip {
+            background-color: #4a4a4a;
+            color: white;
+            padding: 8px 15px;
+            display: flex;
+            justify-content: space-around;
+            font-size: 0.9em;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            transition: background-color 0.5s;
+        }
+
+        #statusStrip.emergency-active {
+            background-color: var(--critical-color) !important;
+            animation: pulseEmergency 1.5s infinite;
+        }
+
+        @keyframes pulseEmergency {
+            0% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.7;
+            }
+
+            100% {
+                opacity: 1;
+            }
+        }
+
+        #statusStrip span {
+            margin: 0 10px;
+        }
+
+        #mainContainer {
+            display: flex;
+            flex-grow: 1;
+            overflow: hidden;
+        }
+
+        .view {
+            padding: 15px;
+            width: 100%;
+            overflow-y: auto;
+            box-sizing: border-box;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #operatorView,
+        #supervisorViewContainer {
+            flex-direction: row;
+            gap: 15px;
+        }
+
+        /* Analyst view itself is a column of its main sections */
+        #analystViewContainer {
+            flex-direction: column;
+            gap: 15px;
+            /* Gap between Sensor module, Middle Row, and Bottom Row */
+        }
+
+
+        #operatorLeftPanel,
+        #supervisorLeftPanel {
+            flex: 3;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            /* overflow: hidden; Let content determine height for parent scroll if needed */
+            height: 100%;
+            /* For these panel types, they manage their own height in a row */
+        }
+
+        #operatorRightPanel,
+        #supervisorRightPanel {
+            flex: 1.5;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            overflow-y: auto;
+            height: 100%;
+        }
+
+        /* Analyst Panels - Simplified */
+        .analyst-panels-row {
+            /* This div wraps left and right panels for Analyst */
+            display: flex;
+            gap: 15px;
+            width: 100%;
+            /* Take full width of the analystViewContainer */
+            /* No flex-grow or specific height; height determined by content */
+        }
+
+        #analystLeftPanel {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        #analystRightPanel {
+            flex: 1.5;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        /* To make AI Insights and Drone Intel take available vertical space in their column */
+        #analystRightPanel .module.ai-insights-module,
+        #analystRightPanel .module.drone-intel-module {
+            flex-grow: 1;
+            display: flex;
+            /* Add this */
+            flex-direction: column;
+            /* Add this */
+        }
+
+        #aiInsightsContent,
+        #droneIntelContent {
+            flex-grow: 1;
+            /* Allow the content div itself to grow */
+            overflow-y: auto;
+            /* And scroll if needed */
+            min-height: 100px;
+        }
+
+
+        .module {
+            background-color: var(--secondary-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 0;
+            /* Removed default bottom margin, rely on flex gap */
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Specific margin for modules not in a flex-gap container if needed */
+        #directorView>.module {
+            margin-bottom: 15px;
+        }
+
+        #directorView>.module:last-child {
+            margin-bottom: 0;
+        }
+
+
+        .module h3 {
+            margin-top: 0;
+            color: var(--highlight-color);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 8px;
+        }
+
+        /* Map */
+        .map-container-shared {
+            position: relative;
+            background-color: #e9e9e9;
+            border: 1px solid var(--border-color);
+            overflow: hidden;
+        }
+
+        #mapContainer {
+            width: 100%;
+            height: auto;
+            aspect-ratio: 600 / 400;
+            min-height: 300px;
+            flex-grow: 1;
+        }
+
+        .mini-map-container {
+            width: 100%;
+            max-width: 450px;
+            height: auto;
+            aspect-ratio: 600 / 400;
+            margin: auto;
+        }
+
+        #floorPlanSvg,
+        .mini-map-svg {
+            display: block;
+        }
+
+        .room.highlighted rect {
+            fill: var(--room-highlight-color) !important;
+            stroke: var(--highlight-color);
+            stroke-width: 2px;
+        }
+
+        .room.critical-highlighted rect {
+            fill: var(--critical-room-highlight-color) !important;
+            stroke: var(--critical-color);
+            stroke-width: 2px;
+        }
+
+        .guard-marker-svg {
+            fill: #008000;
+            stroke: black;
+            stroke-width: 1px;
+        }
+
+
+        .drone-chip {
+            position: absolute;
+            width: 50px;
+            height: 25px;
+            background-color: var(--drone-chip-bg);
+            border: 1px solid #333;
+            border-radius: 12px 12px 3px 3px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7em;
+            cursor: pointer;
+            transform: translate(-50%, -50%);
+            transition: transform 0.5s linear, background-color 0.5s;
+            z-index: 10;
+        }
+
+        .drone-chip.manual {
+            background-color: #ffcc00;
+        }
+
+        .drone-chip.patrol {
+            background-color: #90ee90;
+        }
+
+        .drone-chip.charging {
+            background-color: #add8e6;
+        }
+
+        .drone-chip.low-battery {
+            border: 2px solid var(--warning-color);
+        }
+
+        .drone-chip .battery-bar-container {
+            width: 80%;
+            height: 5px;
+            background-color: #ccc;
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 2px;
+        }
+
+        .drone-chip .battery-bar {
+            height: 100%;
+            background-color: green;
+            transition: width 0.5s;
+        }
+
+        .drone-chip .battery-bar.low {
+            background-color: orange;
+        }
+
+        .drone-chip .battery-bar.critical {
+            background-color: red;
+        }
+
+        /* Patrol Composer */
+        #patrolComposerCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+
+        #patrolComposerCanvas.active {
+            pointer-events: auto;
+            cursor: crosshair;
+        }
+
+        .patrol-controls {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .patrol-controls button,
+        .patrol-controls select,
+        .patrol-controls label {
+            font-size: 0.9em;
+            padding: 5px;
+        }
+
+        /* Alert Filters */
+        .alert-filters {
+            margin-bottom: 10px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .alert-filters select,
+        .alert-filters button {
+            padding: 5px;
+            font-size: 0.9em;
+        }
+
+        /* Alert Feed */
+        .alert-feed-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .alert-feed-table th,
+        .alert-feed-table td {
+            border: 1px solid var(--border-color);
+            padding: 6px;
+            text-align: left;
+            font-size: 0.9em;
+        }
+
+        .alert-feed-table tr:hover {
+            background-color: #f0f8ff;
+        }
+
+        .alert-feed-table tr.selected-alert {
+            background-color: #d6eaff;
+            font-weight: bold;
+        }
+
+        .severity-critical {
+            color: var(--critical-color);
+            font-weight: bold;
+        }
+
+        .severity-warning {
+            color: var(--warning-color);
+        }
+
+        .severity-info {
+            color: var(--info-color);
+        }
+
+        /* Drawers / Modals */
+        .drawer {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: var(--secondary-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            z-index: 1001;
+            width: 450px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .drawer h4 {
+            margin-top: 0;
+        }
+
+        .drawer .close-btn {
+            float: right;
+            cursor: pointer;
+            font-size: 1.2em;
+        }
+
+        /* AI Chat */
+        #aiChatMessages {
+            height: 150px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            padding: 10px;
+            margin-bottom: 10px;
+            background-color: #f9f9f9;
+        }
+
+        #aiChatMessages div {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-radius: 4px;
+        }
+
+        .ai-user {
+            background-color: #e1f0ff;
+            text-align: right;
+        }
+
+        .ai-bot {
+            background-color: #f0f0f0;
+        }
+
+        #aiChatInput {
+            width: calc(100% - 70px);
+            padding: 8px;
+        }
+
+        #aiChatSend {
+            padding: 8px 12px;
+        }
+
+        /* Quick Triage Panel */
+        #quickTriagePanel button {
+            padding: 10px 15px;
+            margin-right: 10px;
+            cursor: pointer;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+        }
+
+        #quickTriageAcknowledge {
+            background-color: #28a745;
+            color: white;
+        }
+
+        #quickTriageDispatch {
+            background-color: #007bff;
+            color: white;
+        }
+
+        #quickTriageMarkFalse {
+            background-color: #dc3545;
+            color: white;
+        }
+
+        #quickTriageOpenContextDrawer {
+            background-color: var(--info-color);
+            color: white;
+        }
+
+        /* Sensor Fusion Lab (Analyst) */
+        .sensor-charts-container {
+            display: flex;
+            justify-content: space-evenly;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .sensor-chart canvas {
+            border: 1px solid var(--border-color);
+        }
+
+        .sensor-chart p {
+            text-align: center;
+            margin-bottom: 5px;
+        }
+
+        .ai-insight-tags {
+            margin-top: 5px;
+            font-size: 0.9em;
+        }
+
+        .ai-insight-tags span {
+            display: inline-block;
+            background-color: #e0e0e0;
+            color: #555;
+            padding: 2px 6px;
+            border-radius: 3px;
+            margin-right: 5px;
+            margin-bottom: 3px;
+        }
+
+
+        /* Guard Tracker & Details */
+        #guardList {
+            list-style: none;
+            padding: 0;
+        }
+
+        #guardList li {
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+        }
+
+        #guardList li:hover {
+            background-color: #f0f0f0;
+        }
+
+        #guardList li.selected-guard {
+            background-color: #d6eaff;
+            font-weight: bold;
+        }
+
+        #guardDetailsPanel {
+            border-top: 1px dashed #ccc;
+            margin-top: 10px;
+            padding-top: 10px;
+        }
+
+        /* Comms Log & Incident Timeline */
+        .log-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9em;
+        }
+
+        .log-table th,
+        .log-table td {
+            border: 1px solid var(--border-color);
+            padding: 6px;
+            text-align: left;
+        }
+
+        .log-list {
+            max-height: 150px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            padding: 5px;
+            background: #f9f9f9;
+        }
+
+        .log-list p {
+            margin: 2px 0;
+            font-size: 0.85em;
+        }
+
+        /* KPI Cards & Drone Health */
+        .kpi-cards-container,
+        .drone-health-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .kpi-card,
+        .drone-health-card {
+            background-color: #e9f5ff;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #c3d9eb;
+            flex: 1;
+            min-width: 150px;
+            text-align: center;
+        }
+
+        .kpi-card h4,
+        .drone-health-card h4 {
+            margin: 0 0 10px 0;
+            font-size: 1em;
+        }
+
+        .kpi-card p,
+        .drone-health-card p {
+            font-size: 1.5em;
+            font-weight: bold;
+            margin: 0;
+        }
+
+        .drone-health-card .battery-bar-container {
+            width: 100%;
+            height: 10px;
+            background-color: #ccc;
+            border-radius: 3px;
+            margin: 5px 0;
+        }
+
+        .drone-health-card .battery-bar {
+            height: 100%;
+            background-color: green;
+            border-radius: 3px;
+        }
+
+        .maintenance-flag {
+            color: var(--warning-color);
+            font-weight: bold;
+            font-size: 0.8em;
+        }
+
+        /* Context Drawer Drone Candidates */
+        .drone-candidate-list {
+            list-style: none;
+            padding: 0;
+            margin-top: 10px;
+        }
+
+        .drone-candidate-list li {
+            padding: 5px;
+            border: 1px solid #eee;
+            margin-bottom: 5px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+
+        .drone-candidate-list li:hover {
+            background-color: #f0f8ff;
+        }
+
+        .drone-candidate-list li.selected-candidate {
+            background-color: #cfe2ff;
+            border-color: var(--highlight-color);
+        }
+
+        /* Director Actions */
+        .director-actions button {
+            margin: 5px;
+            padding: 10px 15px;
+            background-color: var(--highlight-color);
+            color: white;
+            border: none;
+        }
+
+        .director-actions button:hover {
+            background-color: #0056b3;
+        }
+
+        /* Buttons general */
+        button {
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+            background-color: #f0f0f0;
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: #e0e0e0;
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .read-only-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 20;
+            cursor: not-allowed;
+        }
+
+        /* Toast Notifications */
+        #toastContainer {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column-reverse;
+            gap: 10px;
+        }
+
+        .toast {
+            background-color: #333;
+            color: white;
+            padding: 15px;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            opacity: 0;
+            transform: translateX(100%);
+            transition: opacity .5s, transform .5s;
+            min-width: 250px;
+            max-width: 350px;
+        }
+
+        .toast.show {
+            opacity: .95;
+            transform: translateX(0);
+        }
+
+        .toast.toast-info {
+            background-color: var(--highlight-color);
+        }
+
+        .toast.toast-success {
+            background-color: #28a745;
+        }
+
+        .toast.toast-warning {
+            background-color: var(--warning-color);
+            color: #333;
+        }
+
+        .toast.toast-warning button {
+            background-color: #333;
+            color: white;
+            border: 1px solid #555;
+        }
+
+        .toast.toast-critical,
+        .toast.toast-error {
+            background-color: var(--critical-color);
+        }
+
+        .toast .toast-message {
+            display: block;
+            margin-bottom: 8px;
+        }
+
+        .toast .toast-cta button {
+            background-color: rgba(255, 255, 255, .2);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, .5);
+            padding: 5px 10px;
+            margin-top: 10px;
+            cursor: pointer;
+            border-radius: 3px;
+            float: right;
+        }
+
+        .toast .toast-cta button:hover {
+            background-color: rgba(255, 255, 255, .3);
+        }
+
+        .toast .toast-close-btn {
+            position: absolute;
+            top: 5px;
+            right: 10px;
+            background: none;
+            border: none;
+            color: inherit;
+            font-size: 1.2em;
+            cursor: pointer;
+            padding: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="appHeader">
+        <label for="rolePicker">Select Role:</label>
+        <select id="rolePicker">
+            <option value="Director">Director (Marc)</option>
+            <option value="Operator" selected>Operator (Isabelle)</option>
+            <option value="Analyst">Analyst (Luc)</option>
+            <option value="Supervisor">Supervisor (Sophie)</option>
+            <option value="DroneOperator">Drone Operator (FPV)</option>
+        </select>
+    </div>
+
+    <div id="statusStrip">
+        <span>Critical Alerts: <span id="criticalAlertsCount">0</span></span>
+        <span>Drones Ready: <span id="dronesReadyCount">0</span>/<span id="dronesTotalCount">0</span></span>
+        <span>Guards On Patrol: <span id="guardsOnPatrolCount">0</span>/<span id="guardsOnlineCount">0</span></span>
+        <span>Last Sync: <span id="lastSyncTime"></span></span>
+    </div>
+
+    <div id="mainContainer">
+        <!-- Director View -->
+        <div id="directorView" class="view hide">
+            <h2>Command Deck</h2>
+            <div class="module">
+                <h3>KPI Cards</h3>
+                <div id="kpiCardsContainer" class="kpi-cards-container">
+                    <div class="kpi-card">
+                        <h4>Total Alerts Today</h4>
+                        <p id="kpiTotalAlerts">0</p>
+                    </div>
+                    <div class="kpi-card">
+                        <h4>Open Critical</h4>
+                        <p id="kpiCriticalOpen">0</p>
+                    </div>
+                    <div class="kpi-card">
+                        <h4>Drones Active</h4>
+                        <p id="kpiDronesActive">0</p>
+                    </div>
+                    <div class="kpi-card">
+                        <h4>Guards Responding</h4>
+                        <p id="kpiGuardsResponding">0</p>
+                    </div>
+                </div>
+            </div>
+            <div class="module director-actions">
+                <h3>Director Strategic Actions</h3>
+                <button id="directorDeclareEmergencyBtn">Declare Museum Emergency</button>
+                <button id="directorLockdownBtn">Initiate Lockdown Protocol</button>
+                <button id="directorRequestExternalSupportBtn">Request External Support (Police/Fire)</button>
+            </div>
+            <div class="module">
+                <h3>Critical Alerts Feed (Read-Only)</h3>
+                <div style="max-height: 180px; overflow-y: auto;">
+                    <table id="directorCriticalAlertsTable" class="alert-feed-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Room</th>
+                                <th>Text</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="module">
+                <h3>Mini-Map (Read-Only)</h3>
+                <div id="directorMapContainer" class="map-container-shared mini-map-container">
+                    <div class="read-only-overlay"></div>
+                </div>
+            </div>
+            <div class="module">
+                <h3>Drone Fleet Health (Overview)</h3>
+                <div id="directorDroneHealthContainer" class="drone-health-container"
+                    style="max-height: 150px; overflow-y:auto;"></div>
+            </div>
+            <div class="module">
+                <h3>Recent Comms Log (Read-Only)</h3>
+                <div id="directorCommsLogContainer" class="log-list" style="max-height: 150px;"></div>
+            </div>
+        </div>
+
+        <!-- Operator View -->
+        <div id="operatorView" class="view hide">
+            <div id="operatorLeftPanel">
+                <div id="missionControlBoardModule" class="module"
+                    style="flex-grow:1; display:flex; flex-direction:column;">
+                    <h3>Mission Control Board</h3>
+                    <div id="mapContainer" class="map-container-shared">
+                        <svg id="floorPlanSvg" width="100%" height="100%" viewBox="0 0 600 400"></svg>
+                        <canvas id="patrolComposerCanvas"></canvas>
+                    </div>
+                    <div class="patrol-controls">
+                        <button id="patrolComposeBtn">Start Patrol Path</button>
+                        <select id="patrolDroneSelect"></select>
+                        <label><input type="checkbox" id="patrolSnapToCenter" checked> Snap to Room Centers</label>
+                        <button id="patrolDeleteLastPointBtn" disabled>Delete Last Waypoint</button>
+                        <button id="patrolClearCurrentBtn" disabled>Clear Current Path</button>
+                    </div>
+                </div>
+            </div>
+            <div id="operatorRightPanel">
+                <div id="alertFeedModule" class="module">
+                    <h3>Alert Feed</h3>
+                    <div class="alert-filters">
+                        <select id="operatorFilterSeverity">
+                            <option value="">All Severities</option>
+                            <option value="critical">Critical</option>
+                            <option value="warning">Warning</option>
+                            <option value="info">Info</option>
+                        </select>
+                        <select id="operatorFilterStatus">
+                            <option value="">All Statuses</option>
+                            <option value="open">Open</option>
+                            <option value="dispatched">Dispatched</option>
+                            <option value="guard_assigned">Guard Assigned</option>
+                        </select>
+                        <select id="operatorFilterRoom">
+                            <option value="">All Rooms</option>
+                        </select>
+                        <button id="operatorApplyFiltersBtn">Apply Filters</button>
+                    </div>
+                    <div style="max-height: 200px; overflow-y: auto;">
+                        <table id="alertFeedTable" class="alert-feed-table">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Room</th>
+                                    <th>Severity</th>
+                                    <th>Text</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div id="quickTriagePanelModule" class="module hide">
+                    <h3>Quick Triage (Alert: <span id="quickTriageAlertId"></span>)</h3>
+                    <div id="quickTriagePanel">
+                        <button id="quickTriageAcknowledge">✅ Ack</button>
+                        <button id="quickTriageDispatch">🚁 Dispatch Best Drone</button>
+                        <button id="quickTriageMarkFalse">🛑 False Alarm</button>
+                        <button id="quickTriageOpenContextDrawer">🔍 More Details / Drones</button>
+                    </div>
+                </div>
+                <div id="aiChatModule" class="module">
+                    <h3>AI Assistant</h3>
+                    <div id="aiChatMessages"></div>
+                    <input type="text" id="aiChatInput" placeholder="Ask AI..."><button id="aiChatSend">Send</button>
+                </div>
+                <div class="module" id="operatorDroneHealthModule">
+                    <h3>Drone Health Dashboard</h3>
+                    <div id="operatorDroneHealthContainer" class="drone-health-container"
+                        style="max-height: 180px; overflow-y: auto;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analyst View - Simplified for Scrolling -->
+        <div id="analystViewContainer" class="view hide">
+            <div class="module" id="analystSensorStreamModule"> <!-- Top Sensor Module -->
+                <h3>Live Sensor Streams (System Wide Overview)</h3>
+                <div class="sensor-charts-container">
+                    <div class="sensor-chart">
+                        <p>Motion</p><canvas id="motionChart" width="280" height="130"></canvas>
+                    </div>
+                    <div class="sensor-chart">
+                        <p>Heat</p><canvas id="heatChart" width="280" height="130"></canvas>
+                    </div>
+                    <div class="sensor-chart">
+                        <p>Pressure</p><canvas id="pressureChart" width="280" height="130"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="analyst-panels-row"> <!-- Middle row for side-by-side panels -->
+                <div id="analystLeftPanel">
+                    <div class="module" style="flex-grow:1; display:flex; flex-direction:column;">
+                        <!-- Alert Feed Takes available space -->
+                        <h3>Alert Feed for Investigation</h3>
+                        <div class="alert-filters">
+                            <select id="analystFilterSeverity">
+                                <option value="">All Severities</option>
+                                <option value="critical">Critical</option>
+                                <option value="warning">Warning</option>
+                                <option value="info">Info</option>
+                            </select>
+                            <select id="analystFilterStatus">
+                                <option value="">All Statuses</option>
+                                <option value="open">Open</option>
+                                <option value="dispatched">Dispatched</option>
+                                <option value="guard_assigned">Guard Assigned</option>
+                                <option value="acknowledged_by_analyst">Ack (Analyst)</option>
+                                <option value="false_alarm_by_analyst">False (Analyst)</option>
+                            </select>
+                            <select id="analystFilterRoom">
+                                <option value="">All Rooms</option>
+                            </select>
+                            <button id="analystApplyFiltersBtn">Apply</button>
+                        </div>
+                        <div style="overflow-y: auto; flex-grow:1; max-height: 250px;">
+                            <!-- Let table scroll if too long -->
+                            <table id="analystAlertFeedTable" class="alert-feed-table">
+                                <thead>
+                                    <tr>
+                                        <th>Time</th>
+                                        <th>Room</th>
+                                        <th>Severity</th>
+                                        <th>Text</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="module"> <!-- Anomaly Tagger -->
+                        <h3>Anomaly Tagger (Alert: <span id="analystSelectedAlertId">N/A</span>)</h3>
+                        <p>Review Sensor Insights and Drone Intel before labelling.</p>
+                        <button id="labelAlertTrueBtn" disabled>Label TRUE Positive</button>
+                        <button id="labelAlertFalseBtn" disabled>Label FALSE Positive</button>
+                    </div>
+                </div>
+                <div id="analystRightPanel">
+                    <div class="module ai-insights-module"> <!-- AI Insights takes available space -->
+                        <h3>AI Generated Insights & Correlation</h3>
+                        <div id="aiInsightsContent"> <!-- This div will scroll due to module CSS -->
+                            <p>Select an alert to see AI insights.</p>
+                        </div>
+                    </div>
+                    <div class="module drone-intel-module"> <!-- Drone Intel takes available space -->
+                        <h3>Drone Intel (for Selected Alert)</h3>
+                        <div id="droneIntelContent"> <!-- This div will scroll -->
+                            <p>Select an alert with a dispatched drone.</p>
+                        </div>
+                        <button id="analystShareIntelBtn" class="hide">Share Intel with Supervisor</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="analyst-panels-row"> <!-- Bottom row for side-by-side Health and Timeline -->
+                <div class="module" style="flex:2;">
+                    <h3>Drone Fleet Health</h3>
+                    <div id="analystDroneHealthContainer" class="drone-health-container"
+                        style="max-height: 150px; overflow-y:auto;"></div>
+                </div>
+                <div class="module" style="flex:1;">
+                    <h3>Incident Timeline (Resolved Alerts)</h3>
+                    <button id="exportTimelineCsvBtnAnalyst">Download CSV</button>
+                    <div style="max-height: 150px; overflow-y: auto;">
+                        <table id="analystIncidentTimelineTable" class="log-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Time</th>
+                                    <th>Room</th>
+                                    <th>Severity</th>
+                                    <th>Resolution</th>
+                                    <th>Responder</th>
+                                    <th>Analyst Label</th>
+                                    <th>Drone</th>
+                                    <th>Guard</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- Supervisor View -->
+        <div id="supervisorViewContainer" class="view hide">
+            <div id="supervisorLeftPanel">
+                <div class="module">
+                    <h3>Ops Map (Guards & Critical Alerts)</h3>
+                    <div id="supervisorMapContainer" class="map-container-shared mini-map-container"></div>
+                </div>
+                <div class="module">
+                    <h3>Comms Log</h3>
+                    <div id="commsLogContainerSupervisor" class="log-list" style="max-height: 200px;"></div>
+                </div>
+            </div>
+            <div id="supervisorRightPanel">
+                <div class="module">
+                    <h3>Alert Feed (All Open/Active)</h3>
+                    <div class="alert-filters">
+                        <select id="supervisorFilterSeverity">
+                            <option value="">All Severities</option>
+                            <option value="critical">Critical</option>
+                            <option value="warning">Warning</option>
+                            <option value="info">Info</option>
+                        </select>
+                        <select id="supervisorFilterStatus">
+                            <option value="">All Statuses</option>
+                            <option value="open">Open</option>
+                            <option value="dispatched">Dispatched</option>
+                            <option value="guard_assigned">Guard Assigned</option>
+                        </select>
+                        <select id="supervisorFilterRoom">
+                            <option value="">All Rooms</option>
+                        </select>
+                        <button id="supervisorApplyFiltersBtn">Apply Filters</button>
+                    </div>
+                    <div style="max-height: 180px; overflow-y: auto;">
+                        <table id="supervisorAlertFeedTable" class="alert-feed-table">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Room</th>
+                                    <th>Severity</th>
+                                    <th>Text</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <div id="supervisorAlertActions" class="hide" style="margin-top:10px;">
+                        <h4>Actions for Alert: <span id="supervisorSelectedAlertIdDisplay"></span></h4>
+                        <button id="supervisorAssignGuardBtn">Assign Nearest Guard</button>
+                        <button id="supervisorRequestDroneBtn">Request Drone Support from Operator</button>
+                        <button id="supervisorAckAlertBtn">Acknowledge Alert</button>
+                        <button id="supervisorFalseAlarmAlertBtn">Mark False Alarm</button>
+                    </div>
+                </div>
+                <div class="module">
+                    <h3>Guard Tracker & Coordination</h3>
+                    <div style="max-height: 180px; overflow-y: auto;">
+                        <ul id="guardList"></ul>
+                    </div>
+                    <div id="guardDetailsPanel" class="hide">
+                        <h4>Guard: <span id="detailGuardName"></span></h4>
+                        <p>Status: <span id="detailGuardStatus"></span></p>
+                        <button id="assignGuardToAlertBtn" disabled>Assign to Selected Alert</button>
+                        <input type="text" id="customGuardMessageInput" placeholder="Custom message..."
+                            style="width:60%"><button id="sendGuardMessageBtn">Send Msg</button>
+                    </div>
+                </div>
+                <div class="module">
+                    <h3>Shift Handover Notes</h3>
+                    <textarea id="supervisorShiftNotes" rows="3" style="width: 95%;"
+                        placeholder="Enter notes for next shift..."></textarea>
+                    <button id="saveShiftNotesBtn" style="margin-top:5px;">Save Notes</button>
+                </div>
+                <div class="module">
+                    <h3>Incident Timeline (Resolved Alerts)</h3>
+                    <button id="exportTimelineCsvBtnSupervisor">Download Resolved Incidents CSV</button>
+                    <div style="max-height: 150px; overflow-y: auto;">
+                        <table id="supervisorIncidentTimelineTable" class="log-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Time</th>
+                                    <th>Room</th>
+                                    <th>Severity</th>
+                                    <th>Resolution</th>
+                                    <th>Responder</th>
+                                    <th>Analyst Label</th>
+                                    <th>Drone</th>
+                                    <th>Guard</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- DroneOperator View -->
+        <div id="droneOperatorView" class="view hide" style="align-items: center; gap:15px;">
+            <h2>Drone Operator FPV (Drone: <span id="fpvDroneId">N/A</span>)</h2>
+            <div class="module" style="width: 80%; max-width: 800px; aspect-ratio: 16/9; position:relative;">
+                <canvas id="fpvCanvas"
+                    style="width:100%; height:100%; background-color: #70c5ce; border: 1px solid var(--border-color);"></canvas>
+                <div
+                    style="position:absolute; top:50%; left:50%; transform: translate(-50%, -50%); font-size:24px; color:rgba(255,255,255,0.7); pointer-events:none;">
+                    +</div>
+            </div>
+            <div style="display:flex; gap: 20px; justify-content: center; width:100%;">
+                <div class="module" style="flex:1; max-width: 300px;">
+                    <h3>Telemetry</h3>
+                    <p><strong>Status:</strong> <span id="fpvDroneStatus">N/A</span></p>
+                    <p><strong>Battery:</strong> <span id="fpvDroneBattery">N/A</span>%</p>
+                    <p><strong>Current Room (Map):</strong> <span id="fpvDroneRoom">N/A</span></p>
+                    <button id="fpvReturnControlBtn" disabled>Return Control to Operator</button>
+                </div>
+                <div class="module" style="flex:1; max-width: 300px;">
+                    <h3>Mini Map</h3>
+                    <div id="droneOperatorMapContainer" class="map-container-shared mini-map-container"
+                        style="height:200px;">
+                    </div>
+                </div>
+            </div>
+            <p style="margin-top:10px;">Use Arrow Keys to control the drone. Ensure this window/view is focused.</p>
+        </div>
+    </div>
+
+    <div id="droneDrawer" class="drawer hide">
+        <span class="close-btn" onclick="closeDroneDrawer()">✖</span>
+        <h4 id="droneDrawerTitle">Drone D-X</h4>
+        <p>Status: <span id="droneDrawerStatus"></span></p>
+        <p>Battery: <span id="droneDrawerBattery"></span>%</p>
+        <div class="battery-bar-container" style="height:15px; background:#ccc; border-radius:5px; margin-bottom:10px;">
+            <div id="droneDrawerBatteryBar" style="height:100%; background:green; border-radius:5px; width:0%;"></div>
+        </div>
+        <button id="droneDrawerManualToggleBtn">Toggle Manual Control</button>
+        <button id="droneDrawerReturnToBoxBtn">Return to Box</button>
+        <p><em>Manual controls: Use FPV mode. Drone stops autonomous tasks when in manual.</em></p>
+    </div>
+
+    <div id="contextDrawer" class="drawer hide">
+        <span class="close-btn" onclick="closeContextDrawer()">✖</span>
+        <h4>Alert Details</h4>
+        <p><strong>ID:</strong> <span id="contextAlertId"></span></p>
+        <p><strong>Time:</strong> <span id="contextAlertTime"></span></p>
+        <p><strong>Room:</strong> <span id="contextAlertRoom"></span></p>
+        <p><strong>Severity:</strong> <span id="contextAlertSeverity"></span></p>
+        <p><strong>Text:</strong> <span id="contextAlertText"></span></p>
+        <h4>Drone Candidates:</h4>
+        <ul id="contextDroneCandidateList" class="drone-candidate-list"></ul>
+        <button id="contextDispatchBtn" disabled>Dispatch Selected Drone</button>
+    </div>
+
+    <div id="toastContainer"></div>
+
+    <script>
+        // ---------- CONFIGURATION ----------
+        const NUM_DRONES = 5;
+        const ROOMS = {
+            'Gallery A': { id: 'GalleryA', x: 10, y: 10, width: 190, height: 140, centerX: 105, centerY: 80, color: '#DDEEFF' },
+            'Gallery B': { id: 'GalleryB', x: 210, y: 10, width: 190, height: 140, centerX: 305, centerY: 80, color: '#DDEEFF' },
+            'Lobby': { id: 'Lobby', x: 10, y: 160, width: 190, height: 90, centerX: 105, centerY: 205, color: '#EEDDEE' },
+            'Storage': { id: 'Storage', x: 210, y: 160, width: 190, height: 90, centerX: 305, centerY: 205, color: '#EEDDEE' },
+            'Corridor': { id: 'Corridor', x: 10, y: 260, width: 390, height: 40, centerX: 205, centerY: 280, color: '#FFFFDD' },
+            'SecurityOffice': { id: 'SecurityOffice', x: 410, y: 10, width: 180, height: 290, centerX: 500, centerY: 155, color: '#DDFFEE' }
+        };
+        const MAP_WIDTH = 600; const MAP_HEIGHT = 400;
+        const DRONE_BOX_LOCATIONS = [
+            { x: ROOMS['SecurityOffice'].centerX - 60, y: ROOMS['SecurityOffice'].centerY - 60 }, { x: ROOMS['SecurityOffice'].centerX - 30, y: ROOMS['SecurityOffice'].centerY - 60 }, { x: ROOMS['SecurityOffice'].centerX, y: ROOMS['SecurityOffice'].centerY - 60 }, { x: ROOMS['SecurityOffice'].centerX + 30, y: ROOMS['SecurityOffice'].centerY - 60 }, { x: ROOMS['SecurityOffice'].centerX + 60, y: ROOMS['SecurityOffice'].centerY - 60 },
+        ];
+        const CRITICAL_COLOR = '#C80000'; const WARNING_COLOR = '#FFAA00'; const INFO_COLOR = '#6E6E6E';
+        const SEVERITY_ICONS = { critical: '❗', warning: '⚠️', info: 'ℹ️' };
+        const DRONE_SPEED = 2; const DRONE_MANUAL_SPEED = 5; const DRONE_COLLISION_THRESHOLD = 30;
+
+        // ---------- STATE ----------
+        let drones = []; let alerts = []; let resolvedAlerts = []; let commsLogEntries = [];
+        let patrolPaths = JSON.parse(localStorage.getItem('patrolPathsV3')) || {};
+        let guards = [
+            { id: 'G-1', name: 'Alice', x: ROOMS['Gallery A'].centerX, y: ROOMS['Gallery A'].centerY, onPatrol: true, online: true, currentRoom: 'Gallery A', status: 'Patrolling', assignedAlertId: null, deviceBattery: 93 },
+            { id: 'G-2', name: 'Bob', x: ROOMS['Gallery B'].centerX, y: ROOMS['Gallery B'].centerY, onPatrol: true, online: true, currentRoom: 'Gallery B', status: 'Patrolling', assignedAlertId: null, deviceBattery: 88 },
+            { id: 'G-3', name: 'Charlie', x: ROOMS['Lobby'].centerX, y: ROOMS['Lobby'].centerY, onPatrol: false, online: true, currentRoom: 'Lobby', status: 'Standby', assignedAlertId: null, deviceBattery: 95 },
+            { id: 'G-4', name: 'Diana', x: ROOMS['SecurityOffice'].centerX, y: ROOMS['SecurityOffice'].centerY, onPatrol: false, online: true, currentRoom: 'SecurityOffice', status: 'Standby', assignedAlertId: null, deviceBattery: 78 }
+        ];
+        let currentRole = 'Operator';
+        let selectedAlertId = null;
+        let selectedAlertIdSupervisor = null;
+        let selectedAlertIdAnalyst = null;
+        let selectedDroneIdForPanel = null;
+        let selectedDroneIdForDispatch = null;
+        let selectedGuardIdSupervisor = null;
+
+        let lastSyncTime = new Date();
+        let isComposingPatrol = false; let currentPatrolDroneId = null; let currentPatrolPoints = [];
+        let isEmergencyActive = false; let isLockdownActive = false;
+
+        const MAX_SENSOR_POINTS = 50;
+        let sensorData = { motion: [], heat: [], pressure: [] };
+
+        let currentManuallyControlledDroneId = null;
+        let fpvObjects = [];
+        const FPV_CANVAS_WIDTH = 800;
+        const FPV_CANVAS_HEIGHT = 450;
+
+        // ---------- DOM ELEMENTS ----------
+        let rolePicker, statusStrip, statusCriticalAlerts, statusDronesReady, statusDronesTotal, statusGuardsPatrol, statusGuardsOnline, statusLastSync;
+        let views = {};
+        let floorPlanSvg, mapContainer, directorMapContainer, supervisorMapContainer, droneOperatorMapContainer, patrolComposerCanvas;
+        let patrolComposeBtn, patrolDroneSelect, patrolSnapToCenterCheckbox, patrolDeleteLastBtn, patrolClearCurrentBtn;
+
+        let alertFeedTableBody, directorCriticalAlertsTableBody, supervisorAlertFeedTableBody, analystAlertFeedTableBody;
+        let operatorFilterSeverity, operatorFilterStatus, operatorFilterRoom, operatorApplyFiltersBtn;
+        let supervisorFilterSeverity, supervisorFilterStatus, supervisorFilterRoom, supervisorApplyFiltersBtn;
+        let analystFilterSeverity, analystFilterStatus, analystFilterRoom, analystApplyFiltersBtn;
+
+        let droneDrawer, droneDrawerTitle, droneDrawerStatus, droneDrawerBattery, droneDrawerBatteryBar, droneDrawerManualToggleBtn, droneDrawerReturnToBoxBtn;
+        let contextDrawer, contextAlertId, contextAlertTime, contextAlertRoom, contextAlertSeverity, contextAlertText, contextDroneCandidateList, contextDispatchBtn;
+
+        let quickTriagePanelModule, quickTriageAlertIdEl, quickTriageAcknowledgeBtn, quickTriageDispatchBtn, quickTriageMarkFalseBtn, quickTriageOpenContextDrawerBtn;
+        let aiChatMessages, aiChatInput, aiChatSendBtn;
+
+        let motionChartCtx, heatChartCtx, pressureChartCtx;
+        let analystSelectedAlertIdEl, labelAlertTrueBtn, labelAlertFalseBtn, aiInsightsContentEl, droneIntelContentEl, analystShareIntelBtnEl;
+
+        let analystIncidentTimelineTableBody, supervisorIncidentTimelineTableBody, commsLogContainerSupervisor, directorCommsLogContainerEl;
+
+        let guardListEl, guardDetailsPanel, detailGuardName, detailGuardStatus, assignGuardToAlertBtn, customGuardMessageInput, sendGuardMessageBtn;
+        let supervisorAlertActions, supervisorAssignGuardBtn, supervisorRequestDroneBtn, supervisorSelectedAlertIdDisplayEl, supervisorAckAlertBtn, supervisorFalseAlarmAlertBtn;
+        let supervisorShiftNotesEl, saveShiftNotesBtnEl;
+
+        let droneOperatorView, fpvCanvas, fpvDroneIdEl, fpvDroneStatusEl, fpvDroneBatteryEl, fpvDroneRoomEl, fpvReturnControlBtn;
+
+        let kpiTotalAlertsEl, kpiCriticalOpenEl, kpiDronesActiveEl, kpiGuardsRespondingEl;
+        let directorDroneHealthContainerEl, operatorDroneHealthContainerEl, analystDroneHealthContainerEl;
+
+        let directorDeclareEmergencyBtn, directorLockdownBtn, directorRequestExternalSupportBtn;
+        let toastContainer;
+
+
+        // ---------- TOAST NOTIFICATION SYSTEM ----------
+        function createToastContainer() {
+            toastContainer = document.getElementById('toastContainer');
+        }
+        function showToast(message, type = 'info', duration = 7000, cta = null) {
+            if (!toastContainer) createToastContainer();
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            const messageSpan = document.createElement('span');
+            messageSpan.className = 'toast-message';
+            messageSpan.textContent = message;
+            toast.appendChild(messageSpan);
+            const closeBtn = document.createElement('button');
+            closeBtn.className = 'toast-close-btn';
+            closeBtn.innerHTML = '&times;';
+            closeBtn.onclick = () => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 500);
+            };
+            toast.appendChild(closeBtn);
+            if (cta && cta.text && cta.action) {
+                const ctaDiv = document.createElement('div');
+                ctaDiv.className = 'toast-cta';
+                const ctaButton = document.createElement('button');
+                ctaButton.textContent = cta.text;
+                ctaButton.onclick = () => { cta.action(); closeBtn.click(); };
+                ctaDiv.appendChild(ctaButton);
+                toast.appendChild(ctaDiv);
+            }
+            toastContainer.appendChild(toast);
+            setTimeout(() => toast.classList.add('show'), 10);
+            if (duration > 0) {
+                setTimeout(() => {
+                    if (toast.parentElement) {
+                        toast.classList.remove('show');
+                        setTimeout(() => toast.remove(), 500);
+                    }
+                }, duration);
+            }
+            return toast;
+        }
+
+        // ---------- INITIALIZE DRONES ----------
+        function initializeDrones() {
+            drones = [];
+            for (let i = 0; i < NUM_DRONES; i++) {
+                const dock = DRONE_BOX_LOCATIONS[i % DRONE_BOX_LOCATIONS.length];
+                drones.push({
+                    id: `D-${i + 1}`, x: dock.x, y: dock.y,
+                    battery: Math.floor(Math.random() * 40) + 60, state: 'idle',
+                    target: null, path: [], dockLocation: dock,
+                    cyclesToday: Math.floor(Math.random() * 5),
+                    lastMaintenance: Math.random() > 0.8 ? new Date(Date.now() - (Math.floor(Math.random() * 10) + 1) * 24 * 60 * 60 * 1000) : null,
+                    currentRoom: getRoomForCoords(dock.x, dock.y),
+                    previousState: 'idle', previousTarget: null,
+                    isScanning: false,
+                });
+            }
+        }
+
+        // ---------- UTILITY FUNCTIONS ----------
+        function getDistance(p1, p2) { return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2)); }
+        function getRoomForCoords(x, y) {
+            for (const name in ROOMS) {
+                const room = ROOMS[name];
+                if (x >= room.x && x <= room.x + room.width && y >= room.y && y <= room.y + room.height) return name;
+            }
+            return 'Corridor';
+        }
+        function addCommsLog(message, actor = currentRole) {
+            const timestamp = new Date().toLocaleTimeString();
+            commsLogEntries.unshift({ timestamp, actor, message });
+            if (commsLogEntries.length > 100) commsLogEntries.pop();
+            if (commsLogContainerSupervisor && commsLogContainerSupervisor.offsetParent) renderCommsLog(commsLogContainerSupervisor);
+            if (directorCommsLogContainerEl && directorCommsLogContainerEl.offsetParent) renderCommsLog(directorCommsLogContainerEl);
+        }
+
+        // ---------- ROLE MANAGEMENT ----------
+        function switchRole(roleId) {
+            currentRole = roleId;
+            selectedAlertId = null; selectedAlertIdSupervisor = null; selectedAlertIdAnalyst = null;
+            selectedGuardIdSupervisor = null;
+            closeDroneDrawer(); closeContextDrawer();
+            renderQuickTriagePanel();
+            if (guardDetailsPanel) guardDetailsPanel.classList.add('hide');
+            if (supervisorAlertActions) supervisorAlertActions.classList.add('hide');
+            if (analystShareIntelBtnEl) analystShareIntelBtnEl.classList.add('hide');
+            if (labelAlertTrueBtn) labelAlertTrueBtn.disabled = true;
+            if (labelAlertFalseBtn) labelAlertFalseBtn.disabled = true;
+
+            Object.values(views).forEach(view => { if (view) view.classList.add('hide'); });
+
+            const currentViewToShow = views[roleId];
+
+            if (currentViewToShow) {
+                currentViewToShow.classList.remove('hide');
+            } else {
+                const constructedViewId = (roleId === 'Analyst' || roleId === 'Supervisor') ? `${roleId}ViewContainer` : `${roleId}View`;
+                const fallbackView = document.getElementById(constructedViewId);
+                if (fallbackView) {
+                    fallbackView.classList.remove('hide');
+                } else {
+                    console.error(`View for role "${roleId}" (tried key "${roleId}" and ID "${constructedViewId}") not found in 'views' object or DOM.`);
+                    showToast(`Error: UI View for role "${roleId}" not found.`, "error");
+                }
+            }
+
+            addCommsLog(`Switched to ${roleId} role`, "System");
+            updateUIForRoleAndRenderData();
+
+            if (roleId === 'DroneOperator') {
+                setupFpvView();
+                if (!fpvObjects.length) initializeFpvObjects();
+                renderFpv();
+            }
+        }
+
+        function updateUIForRoleAndRenderData() {
+            const isOperator = currentRole === 'Operator';
+            if (patrolComposeBtn) patrolComposeBtn.disabled = !isOperator;
+            if (patrolDroneSelect) patrolDroneSelect.disabled = !isOperator;
+            if (patrolSnapToCenterCheckbox) patrolSnapToCenterCheckbox.disabled = !isOperator;
+            if (patrolDeleteLastBtn) patrolDeleteLastBtn.disabled = !isOperator || !isComposingPatrol || currentPatrolPoints.length === 0;
+            if (patrolClearCurrentBtn) patrolClearCurrentBtn.disabled = !isOperator || !isComposingPatrol || currentPatrolPoints.length === 0;
+
+            if (currentRole === 'Director') {
+                renderDirectorMap(); renderDirectorCriticalAlerts();
+                if (directorDroneHealthContainerEl && directorDroneHealthContainerEl.offsetParent) renderDroneHealthDashboard(directorDroneHealthContainerEl);
+                if (directorCommsLogContainerEl && directorCommsLogContainerEl.offsetParent) renderCommsLog(directorCommsLogContainerEl);
+            } else if (currentRole === 'Operator') {
+                resizePatrolCanvas();
+                if (operatorDroneHealthContainerEl && operatorDroneHealthContainerEl.offsetParent) renderDroneHealthDashboard(operatorDroneHealthContainerEl);
+                if (alertFeedTableBody && alertFeedTableBody.offsetParent) renderAlertFeed(alerts, alertFeedTableBody, selectAlertOperator, selectedAlertId, getOperatorFilters());
+                if (aiChatMessages && aiChatMessages.children.length === 0) {
+                    appendAIChatMessage("Hi Isabelle! How can I assist you today? Try 'best drone for alert [ID]' or 'ack alert [ID]'.", 'bot');
+                }
+            } else if (currentRole === 'Supervisor') {
+                renderSupervisorMap();
+                if (supervisorAlertFeedTableBody && supervisorAlertFeedTableBody.offsetParent) renderAlertFeed(alerts, supervisorAlertFeedTableBody, selectAlertSupervisor, selectedAlertIdSupervisor, getSupervisorFilters());
+                if (guardListEl && guardListEl.offsetParent) renderGuardTracker();
+                if (commsLogContainerSupervisor && commsLogContainerSupervisor.offsetParent) renderCommsLog(commsLogContainerSupervisor);
+                if (supervisorShiftNotesEl) { // Load saved notes for supervisor
+                    supervisorShiftNotesEl.value = localStorage.getItem('supervisorShiftNotes') || '';
+                }
+            } else if (currentRole === 'Analyst') {
+                if (analystAlertFeedTableBody && analystAlertFeedTableBody.offsetParent) renderAlertFeed(alerts, analystAlertFeedTableBody, selectAlertAnalyst, selectedAlertIdAnalyst, getAnalystFilters());
+                if (analystDroneHealthContainerEl && analystDroneHealthContainerEl.offsetParent) renderDroneHealthDashboard(analystDroneHealthContainerEl);
+
+                const selectedAnalystAlertObj = selectedAlertIdAnalyst ? (alerts.find(a => a.id === selectedAlertIdAnalyst) || resolvedAlerts.find(a => a.id === selectedAlertIdAnalyst)) : null;
+                updateAIInsights(selectedAnalystAlertObj);
+                updateDroneIntel(selectedAnalystAlertObj);
+                updateSensorCharts();
+            } else if (currentRole === 'DroneOperator') {
+                renderDroneOperatorMiniMap();
+            }
+
+            const analystTimelineTable = document.getElementById('analystIncidentTimelineTable');
+            const supervisorTimelineTable = document.getElementById('supervisorIncidentTimelineTable');
+            if ((analystTimelineTable && analystTimelineTable.offsetParent) || (supervisorTimelineTable && supervisorTimelineTable.offsetParent)) {
+                renderIncidentTimeline();
+            }
+        }
+
+        // ---------- STATUS STRIP & KPIs ----------
+        function updateStatusStripAndKPIs() {
+            const criticalOpenAlerts = alerts.filter(a => a.severity === 'critical' && (a.status === 'open' || a.status === 'dispatched' || a.status === 'guard_assigned')).length;
+            const dronesReady = drones.filter(d => d.state === 'idle' && d.battery > 20).length;
+            const guardsOnPatrol = guards.filter(g => g.onPatrol && g.online).length;
+            const guardsOnline = guards.filter(g => g.online).length;
+
+            if (statusCriticalAlerts) statusCriticalAlerts.textContent = criticalOpenAlerts;
+            if (statusDronesReady) statusDronesReady.textContent = dronesReady;
+            if (statusDronesTotal) statusDronesTotal.textContent = drones.length;
+            if (statusGuardsPatrol) statusGuardsPatrol.textContent = guardsOnPatrol;
+            if (statusGuardsOnline) statusGuardsOnline.textContent = guardsOnline;
+            if (statusLastSync) statusLastSync.textContent = new Date().toLocaleTimeString();
+            if (statusStrip) statusStrip.classList.toggle('emergency-active', isEmergencyActive);
+
+            if (currentRole === 'Director' && kpiTotalAlertsEl) {
+                kpiTotalAlertsEl.textContent = alerts.length + resolvedAlerts.length;
+                kpiCriticalOpenEl.textContent = criticalOpenAlerts;
+                kpiDronesActiveEl.textContent = drones.filter(d => d.state !== 'idle' && d.state !== 'charging').length;
+                kpiGuardsRespondingEl.textContent = guards.filter(g => g.assignedAlertId !== null).length;
+            }
+        }
+
+        // ---------- MAP RENDERING (Common Base) ----------
+        function createFloorplanSVGContent(svgElement, forRole) {
+            svgElement.innerHTML = '';
+            Object.values(ROOMS).forEach(roomData => {
+                const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                g.classList.add('room'); g.setAttribute('id', `${forRole}-room-${roomData.id}`);
+                const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                rect.setAttribute('x', roomData.x); rect.setAttribute('y', roomData.y);
+                rect.setAttribute('width', roomData.width); rect.setAttribute('height', roomData.height);
+                rect.setAttribute('fill', roomData.color); rect.setAttribute('stroke', '#555'); rect.setAttribute('stroke-width', '1');
+                g.appendChild(rect);
+                const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                text.setAttribute('x', roomData.centerX); text.setAttribute('y', roomData.centerY);
+                text.setAttribute('text-anchor', 'middle'); text.setAttribute('dominant-baseline', 'middle');
+                text.setAttribute('font-size', '10'); text.setAttribute('fill', '#333');
+                text.textContent = Object.keys(ROOMS).find(key => ROOMS[key] === roomData);
+                g.appendChild(text); svgElement.appendChild(g);
+            });
+        }
+        function renderFloorPlan() { if (floorPlanSvg) createFloorplanSVGContent(floorPlanSvg, 'operator'); renderAllStoredPatrolPaths(); }
+
+        function renderMiniMap(mapContainerEl, svgIdPrefix, includeGuards = false, highlightAlert = null) {
+            if (!mapContainerEl || !mapContainerEl.offsetParent) return;
+            let svg = mapContainerEl.querySelector('svg');
+            if (!svg) {
+                svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                svg.setAttribute('width', '100%'); svg.setAttribute('height', '100%');
+                svg.setAttribute('viewBox', `0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`);
+                svg.classList.add('mini-map-svg');
+                mapContainerEl.innerHTML = ''; mapContainerEl.appendChild(svg);
+            }
+            createFloorplanSVGContent(svg, svgIdPrefix);
+
+            svg.querySelectorAll(`.room.highlighted, .room.critical-highlighted`).forEach(el => {
+                el.classList.remove('highlighted', 'critical-highlighted');
+            });
+
+            if (svgIdPrefix === 'director' || svgIdPrefix === 'supervisor') {
+                alerts.filter(a => a.status === 'open' && a.severity === 'critical').forEach(critAlert => {
+                    if (ROOMS[critAlert.room]) {
+                        const roomElement = svg.querySelector(`#${svgIdPrefix}-room-${ROOMS[critAlert.room].id}`);
+                        if (roomElement) roomElement.classList.add('critical-highlighted');
+                    }
+                });
+            }
+            if (highlightAlert && ROOMS[highlightAlert.room]) {
+                const roomElement = svg.querySelector(`#${svgIdPrefix}-room-${ROOMS[highlightAlert.room].id}`);
+                if (roomElement) roomElement.classList.add(highlightAlert.severity === 'critical' ? 'critical-highlighted' : 'highlighted');
+            }
+
+            if (includeGuards) {
+                guards.forEach(guard => {
+                    if (guard.online) {
+                        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                        circle.setAttribute('cx', guard.x); circle.setAttribute('cy', guard.y);
+                        circle.setAttribute('r', '8'); circle.classList.add('guard-marker-svg');
+                        if (guard.assignedAlertId) circle.setAttribute('fill', 'orange');
+                        svg.appendChild(circle);
+                        const guardText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                        guardText.setAttribute('x', guard.x); guardText.setAttribute('y', guard.y + 3);
+                        guardText.setAttribute('text-anchor', 'middle'); guardText.setAttribute('dominant-baseline', 'middle');
+                        guardText.setAttribute('font-size', '10'); guardText.setAttribute('fill', 'white');
+                        guardText.textContent = guard.id.substring(0, 2); svg.appendChild(guardText);
+                    }
+                });
+            }
+            drones.forEach(drone => {
+                const droneMarker = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+                const size = 8;
+                droneMarker.setAttribute('points', `${drone.x},${drone.y - size} ${drone.x - size / 1.5},${drone.y + size / 2} ${drone.x + size / 1.5},${drone.y + size / 2}`);
+                let fillColor = '#aaddff';
+                if (drone.state === 'manual') fillColor = '#ffcc00';
+                else if (drone.state === 'responding' || drone.state === 'patrol' || drone.isScanning) fillColor = '#90ee90';
+                else if (drone.state === 'charging') fillColor = '#add8e6';
+                droneMarker.setAttribute('fill', fillColor);
+                droneMarker.setAttribute('stroke', '#333'); droneMarker.setAttribute('stroke-width', '1');
+                svg.appendChild(droneMarker);
+            });
+
+            if (svgIdPrefix === 'director' && !mapContainerEl.querySelector('.read-only-overlay')) {
+                const overlay = document.createElement('div'); overlay.className = 'read-only-overlay';
+                mapContainerEl.appendChild(overlay);
+            }
+        }
+        function renderDirectorMap() { if (directorMapContainer) renderMiniMap(directorMapContainer, 'director'); }
+        function renderSupervisorMap() { if (supervisorMapContainer) renderMiniMap(supervisorMapContainer, 'supervisor', true); }
+
+        function renderDroneOperatorMiniMap() {
+            if (droneOperatorMapContainer && droneOperatorMapContainer.offsetParent && currentManuallyControlledDroneId) {
+                const drone = drones.find(d => d.id === currentManuallyControlledDroneId);
+                renderMiniMap(droneOperatorMapContainer, 'droneoperator', false, null);
+                if (drone && ROOMS[drone.currentRoom]) {
+                    const svg = droneOperatorMapContainer.querySelector('svg');
+                    if (svg) {
+                        const roomElement = svg.querySelector(`#droneoperator-room-${ROOMS[drone.currentRoom].id}`);
+                        if (roomElement) roomElement.classList.add('highlighted');
+                    }
+                }
+            }
+        }
+        function highlightRoomOnMap(roomName, mapSvgElement = floorPlanSvg, idPrefix = 'operator', isCritical = false) {
+            if (!mapSvgElement) return;
+            mapSvgElement.querySelectorAll(`.room.highlighted, .room.critical-highlighted`).forEach(el => {
+                el.classList.remove('highlighted', 'critical-highlighted');
+            });
+            if (ROOMS[roomName]) {
+                const roomElement = mapSvgElement.querySelector(`#${idPrefix}-room-${ROOMS[roomName].id}`);
+                if (roomElement) roomElement.classList.add(isCritical ? 'critical-highlighted' : 'highlighted');
+            }
+        }
+
+        // ---------- DRONES (Chips, Movement, Logic) ----------
+        function createDroneChipElement(drone) {
+            if (!mapContainer) return null;
+            let chip = document.getElementById(`drone-${drone.id}`);
+            if (!chip) {
+                chip = document.createElement('div'); chip.id = `drone-${drone.id}`; chip.className = 'drone-chip';
+                chip.innerHTML = `<span>${drone.id}</span><div class="battery-bar-container"><div class="battery-bar"></div></div>`;
+                chip.onclick = () => openDroneDrawer(drone.id);
+                mapContainer.appendChild(chip);
+            }
+            return chip;
+        }
+        function updateDroneChips() {
+            if (!mapContainer || !mapContainer.offsetParent) return;
+            drones.forEach(drone => {
+                const chip = createDroneChipElement(drone);
+                if (!chip) return;
+                const mapRect = mapContainer.getBoundingClientRect();
+                chip.style.left = `${(drone.x / MAP_WIDTH) * mapRect.width}px`;
+                chip.style.top = `${(drone.y / MAP_HEIGHT) * mapRect.height}px`;
+                chip.classList.remove('manual', 'patrol', 'charging', 'low-battery');
+                if (drone.state === 'manual') chip.classList.add('manual');
+                else if (drone.state === 'patrol' || drone.state === 'responding' || drone.isScanning) chip.classList.add('patrol');
+                else if (drone.state === 'charging') chip.classList.add('charging');
+
+                if (drone.battery < 20) chip.classList.add('low-battery');
+                const batteryBar = chip.querySelector('.battery-bar');
+                if (batteryBar) {
+                    batteryBar.style.width = `${drone.battery}%`;
+                    batteryBar.className = 'battery-bar';
+                    if (drone.battery < 20) batteryBar.classList.add('critical');
+                    else if (drone.battery < 50) batteryBar.classList.add('low');
+                }
+            });
+        }
+
+        function updateDrones() {
+            const latestCriticalAlert = alerts.find(a => a.severity === 'critical' && (a.status === 'open' || a.status === 'dispatched' || a.status === 'guard_assigned'));
+
+            drones.forEach(drone => {
+                if (drone.id === currentManuallyControlledDroneId && drone.state === 'manual') {
+                    drone.battery = Math.max(0, drone.battery - 0.1);
+                    if (drone.battery === 0) {
+                        showToast(`Drone ${drone.id} battery depleted! Control lost. Returning to box.`, "critical");
+                        returnControlToOperator(true);
+                    }
+                    drone.currentRoom = getRoomForCoords(drone.x, drone.y);
+                    if (currentRole === 'DroneOperator' && drone.id === currentManuallyControlledDroneId) {
+                        updateFpvTelemetry(drone);
+                    }
+                    return;
+                }
+
+                drone.isScanning = false;
+                if (drone.state === 'charging') {
+                    drone.battery = Math.min(100, drone.battery + 1);
+                    if (drone.battery === 100) drone.state = 'idle';
+                } else if (drone.state !== 'idle') {
+                    drone.battery = Math.max(0, drone.battery - 0.1);
+                }
+
+                if (drone.battery === 0 && drone.state !== 'charging' && drone.state !== 'returning_to_box') {
+                    addCommsLog(`Drone ${drone.id} battery depleted. Returning to box.`, "System");
+                    drone.target = { ...drone.dockLocation }; drone.state = 'returning_to_box'; drone.path = [];
+                }
+
+                if (isEmergencyActive && (drone.state === 'idle' || drone.state === 'patrol') && drone.battery > 20 && drone.state !== 'manual') {
+                    if (latestCriticalAlert && ROOMS[latestCriticalAlert.room]) {
+                        drone.target = { x: ROOMS[latestCriticalAlert.room].centerX, y: ROOMS[latestCriticalAlert.room].centerY };
+                    } else {
+                        drone.target = { x: MAP_WIDTH / 2, y: MAP_HEIGHT / 2 };
+                    }
+                    drone.state = 'responding';
+                    drone.path = [];
+                    addCommsLog(`EMERGENCY: Drone ${drone.id} auto-responding.`, "System");
+                }
+
+                if (drone.target) {
+                    const dist = getDistance(drone, drone.target);
+                    if (dist < DRONE_SPEED) {
+                        drone.x = drone.target.x; drone.y = drone.target.y;
+                        if (drone.state === 'responding') {
+                            addCommsLog(`Drone ${drone.id} arrived at ${getRoomForCoords(drone.x, drone.y)}. Loitering & Scanning.`, "Drone " + drone.id);
+                            drone.state = 'patrol';
+                            drone.isScanning = true;
+                            drone.target = { x: drone.x + (Math.random() - 0.5) * 20, y: drone.y + (Math.random() - 0.5) * 20 };
+
+                        } else if (drone.state === 'returning_to_box') {
+                            drone.state = 'charging'; drone.cyclesToday = (drone.cyclesToday || 0) + 1;
+                            addCommsLog(`Drone ${drone.id} docked and charging. Cycles today: ${drone.cyclesToday}.`, "Drone " + drone.id);
+                        }
+                        if (drone.path && drone.path.length > 0) drone.target = drone.path.shift();
+                        else {
+                            if (!drone.isScanning) drone.target = null;
+                            if (drone.state === 'patrol' && !isEmergencyActive && !drone.isScanning) drone.state = 'idle';
+                        }
+                    } else {
+                        const angle = Math.atan2(drone.target.y - drone.y, drone.target.x - drone.x);
+                        drone.x += Math.cos(angle) * DRONE_SPEED; drone.y += Math.sin(angle) * DRONE_SPEED;
+                    }
+                } else if (drone.state === 'patrol' && !isEmergencyActive) {
+                    if (patrolPaths[drone.id] && patrolPaths[drone.id].length > 0 && (!drone.path || drone.path.length === 0)) {
+                        drone.path = [...patrolPaths[drone.id]]; drone.target = drone.path.shift();
+                    } else if (!drone.target) {
+                        drone.x += (Math.random() - 0.5) * 2; drone.y += (Math.random() - 0.5) * 2;
+                    }
+                } else if (drone.state === 'idle' && !isEmergencyActive) {
+                    if (getDistance(drone, drone.dockLocation) > 5) {
+                        const angle = Math.atan2(drone.dockLocation.y - drone.y, drone.dockLocation.x - drone.x);
+                        drone.x += Math.cos(angle) * (DRONE_SPEED / 2); drone.y += Math.sin(angle) * (DRONE_SPEED / 2);
+                    } else if (getDistance(drone, drone.dockLocation) <= 5 && drone.battery < 98) {
+                        drone.state = 'charging';
+                    }
+                }
+                drone.x = Math.max(5, Math.min(MAP_WIDTH - 5, drone.x)); drone.y = Math.max(5, Math.min(MAP_HEIGHT - 5, drone.y));
+                drone.currentRoom = getRoomForCoords(drone.x, drone.y);
+
+                if (drone.battery < 15 && drone.state !== 'charging' && drone.state !== 'returning_to_box' && drone.state !== 'manual') {
+                    addCommsLog(`Drone ${drone.id} critically low battery (${drone.battery.toFixed(0)}%). Returning to box.`, "System");
+                    drone.state = 'returning_to_box'; drone.target = { ...drone.dockLocation }; drone.path = [];
+                }
+            });
+
+            checkDroneCollisions();
+            if (currentRole === 'Operator') updateDroneChips();
+
+            if (directorMapContainer && directorMapContainer.offsetParent) renderDirectorMap();
+            if (supervisorMapContainer && supervisorMapContainer.offsetParent) renderSupervisorMap();
+            if (droneOperatorMapContainer && droneOperatorMapContainer.offsetParent) renderDroneOperatorMiniMap();
+
+            if (directorDroneHealthContainerEl && directorDroneHealthContainerEl.offsetParent) renderDroneHealthDashboard(directorDroneHealthContainerEl);
+            if (operatorDroneHealthContainerEl && operatorDroneHealthContainerEl.offsetParent) renderDroneHealthDashboard(operatorDroneHealthContainerEl);
+            if (analystDroneHealthContainerEl && analystDroneHealthContainerEl.offsetParent) renderDroneHealthDashboard(analystDroneHealthContainerEl);
+        }
+        function checkDroneCollisions() { /* As previously */ }
+
+        function toggleManualDroneControl(droneId) {
+            const drone = drones.find(d => d.id === droneId); if (!drone) return;
+
+            if (drone.state === 'manual') {
+                drone.state = drone.previousState && drone.previousState !== 'manual' ? drone.previousState : 'idle';
+                drone.target = drone.previousTarget;
+                addCommsLog(`Drone ${drone.id} switched to AUTONOMOUS (${drone.state}) by Operator.`, "Operator");
+                showToast(`Drone ${drone.id} now in ${drone.state} mode.`, "info");
+                if (drone.id === currentManuallyControlledDroneId) {
+                    currentManuallyControlledDroneId = null;
+                    if (currentRole === 'DroneOperator') {
+                        showToast("Operator has resumed autonomous control. FPV view disabled.", "warning");
+                        if (fpvReturnControlBtn) fpvReturnControlBtn.disabled = true;
+                        setupFpvView();
+                    }
+                }
+            } else {
+                drone.previousState = drone.state; drone.previousTarget = drone.target;
+                drone.state = 'manual'; drone.target = null; drone.path = [];
+                currentManuallyControlledDroneId = drone.id;
+                addCommsLog(`Drone ${drone.id} switched to MANUAL control by Operator. Ready for FPV.`, "Operator");
+                showToast(`Drone ${drone.id} ready for FPV.`, "info", 10000, {
+                    text: "Switch to Drone Operator View",
+                    action: () => {
+                        if (rolePicker) rolePicker.value = "DroneOperator";
+                        switchRole("DroneOperator");
+                    }
+                });
+            }
+
+            if (selectedDroneIdForPanel === drone.id && droneDrawer && !droneDrawer.classList.contains('hide')) {
+                droneDrawerManualToggleBtn.textContent = drone.state === 'manual' ? 'Switch to Autonomous' : 'Switch to Manual Control';
+                droneDrawerStatus.textContent = drone.state;
+            }
+            if (currentRole === 'Operator') updateDroneChips();
+
+            if (currentRole === 'DroneOperator') {
+                setupFpvView();
+            }
+        }
+        function openDroneDrawer(droneId) {
+            if (currentRole !== 'Operator' || !droneDrawer) return;
+            const drone = drones.find(d => d.id === droneId); if (!drone) return;
+            selectedDroneIdForPanel = droneId;
+            droneDrawerTitle.textContent = `Drone ${drone.id}`; droneDrawerStatus.textContent = drone.state;
+            droneDrawerBattery.textContent = drone.battery.toFixed(0);
+            droneDrawerBatteryBar.style.width = `${drone.battery}%`;
+            droneDrawerBatteryBar.style.backgroundColor = drone.battery < 20 ? 'red' : drone.battery < 50 ? 'orange' : 'green';
+            droneDrawerManualToggleBtn.textContent = drone.state === 'manual' ? 'Switch to Autonomous' : 'Switch to Manual Control';
+            droneDrawer.classList.remove('hide');
+        }
+        function closeDroneDrawer() { if (droneDrawer) droneDrawer.classList.add('hide'); selectedDroneIdForPanel = null; }
+
+        // ---------- ALERTS & FILTERING ----------
+        function pushRandomAlert() {
+            const roomNames = Object.keys(ROOMS);
+            const sevRand = Math.random();
+            const severity = sevRand < 0.15 ? 'critical' : (sevRand < 0.6 ? 'warning' : 'info');
+            let alertText = severity === 'critical' ? 'Critical security breach indicators!' : (severity === 'warning' ? 'Anomalous activity detected' : 'Routine sensor check-in');
+
+            if (Math.random() < 0.1 && severity === 'critical') {
+                alertText += ` (Door ${roomNames[0].charAt(0)}D3 Forced - Ref:AC789)`;
+            } else if (Math.random() < 0.05 && severity === 'warning') {
+                alertText += ` (CCTV C-${roomNames[1].charAt(0)}02 Offline)`;
+            }
+
+            const newAlert = {
+                id: 'AL' + Date.now(), time: new Date().toLocaleTimeString(),
+                room: roomNames[Math.floor(Math.random() * roomNames.length)],
+                severity: severity, text: alertText,
+                status: 'open', dispatchedDroneId: null, assignedGuardId: null, analystLabel: null,
+            };
+            alerts.unshift(newAlert); if (alerts.length > 50) alerts.pop();
+            addCommsLog(`New ${severity} alert in ${newAlert.room}: ${newAlert.text}`, "System");
+
+            if (severity === 'critical') {
+                showToast(`🚨 CRITICAL ALERT: ${newAlert.room} - ${newAlert.text}`, 'critical', 10000);
+                if (directorCriticalAlertsTableBody && directorCriticalAlertsTableBody.offsetParent) renderDirectorCriticalAlerts();
+                if (supervisorMapContainer && supervisorMapContainer.offsetParent) renderSupervisorMap();
+            }
+            refreshVisibleAlertFeeds();
+            updateStatusStripAndKPIs();
+        }
+        function getAlertFilters(rolePrefix) {
+            const severityFilterEl = document.getElementById(`${rolePrefix}FilterSeverity`);
+            const statusFilterEl = document.getElementById(`${rolePrefix}FilterStatus`);
+            const roomFilterEl = document.getElementById(`${rolePrefix}FilterRoom`);
+            if (!severityFilterEl || !statusFilterEl || !roomFilterEl) return {};
+            return { severity: severityFilterEl.value, status: statusFilterEl.value, room: roomFilterEl.value };
+        }
+        function getOperatorFilters() { return getAlertFilters('operator'); }
+        function getSupervisorFilters() { return getAlertFilters('supervisor'); }
+        function getAnalystFilters() { return getAlertFilters('analyst'); }
+        function renderAlertFeed(alertSource, tbody, onRowClickCallback, currentSelectedId, filters = {}) {
+            if (!tbody || !tbody.offsetParent) return;
+            tbody.innerHTML = '';
+            let filteredAlerts = alertSource.filter(a => {
+                let pass = true;
+                if (filters.severity && a.severity !== filters.severity) pass = false;
+                if (filters.status) {
+                    if (a.status !== filters.status) pass = false;
+                } else {
+                    if (!['open', 'dispatched', 'guard_assigned'].includes(a.status)) pass = false;
+                }
+                if (filters.room && a.room !== filters.room) pass = false;
+                return pass;
+            });
+            filteredAlerts.forEach(alert => {
+                const row = tbody.insertRow();
+                row.insertCell().textContent = alert.time;
+                row.insertCell().textContent = alert.room;
+                const sevCell = row.insertCell();
+                sevCell.textContent = `${SEVERITY_ICONS[alert.severity]} ${alert.severity}`;
+                sevCell.className = `severity-${alert.severity}`;
+                row.insertCell().textContent = alert.text;
+                row.insertCell().textContent = alert.status;
+                row.onclick = () => onRowClickCallback(alert.id);
+                if (alert.id === currentSelectedId) row.classList.add('selected-alert');
+            });
+        }
+        function refreshVisibleAlertFeeds() {
+            if (alertFeedTableBody && alertFeedTableBody.offsetParent) renderAlertFeed(alerts, alertFeedTableBody, selectAlertOperator, selectedAlertId, getOperatorFilters());
+            if (supervisorAlertFeedTableBody && supervisorAlertFeedTableBody.offsetParent) renderAlertFeed(alerts, supervisorAlertFeedTableBody, selectAlertSupervisor, selectedAlertIdSupervisor, getSupervisorFilters());
+            if (analystAlertFeedTableBody && analystAlertFeedTableBody.offsetParent) renderAlertFeed(alerts, analystAlertFeedTableBody, selectAlertAnalyst, selectedAlertIdAnalyst, getAnalystFilters());
+            if (directorCriticalAlertsTableBody && directorCriticalAlertsTableBody.offsetParent) renderDirectorCriticalAlerts();
+        }
+        function renderDirectorCriticalAlerts() {
+            if (!directorCriticalAlertsTableBody || !directorCriticalAlertsTableBody.offsetParent) return;
+            directorCriticalAlertsTableBody.innerHTML = '';
+            alerts.filter(a => a.severity === 'critical' && (a.status === 'open' || a.status === 'dispatched' || a.status === 'guard_assigned')).forEach(alert => {
+                const row = directorCriticalAlertsTableBody.insertRow();
+                row.insertCell().textContent = alert.time; row.insertCell().textContent = alert.room;
+                row.insertCell().textContent = alert.text; row.insertCell().textContent = alert.status;
+            });
+            if (directorMapContainer && directorMapContainer.offsetParent) renderDirectorMap();
+        }
+        function selectAlertOperator(alertIdParam) {
+            selectedAlertId = alertIdParam;
+            const alert = alerts.find(a => a.id === selectedAlertId);
+            if (!alert) { if (quickTriagePanelModule) quickTriagePanelModule.classList.add('hide'); return; }
+            if (floorPlanSvg) highlightRoomOnMap(alert.room, floorPlanSvg, 'operator', alert.severity === 'critical');
+            if (quickTriageAlertIdEl) quickTriageAlertIdEl.textContent = alert.id.substring(0, 8) + "...";
+            renderQuickTriagePanel();
+            if (alertFeedTableBody) renderAlertFeed(alerts, alertFeedTableBody, selectAlertOperator, selectedAlertId, getOperatorFilters());
+        }
+        function openContextDrawerForSelectedAlert() {
+            if (!selectedAlertId) { showToast("No alert selected for details.", "warning"); return; }
+            const alert = alerts.find(a => a.id === selectedAlertId);
+            if (!alert) { showToast("Selected alert data not found.", "error"); return; }
+            if (contextAlertId) contextAlertId.textContent = alert.id;
+            if (contextAlertTime) contextAlertTime.textContent = alert.time;
+            if (contextAlertRoom) contextAlertRoom.textContent = alert.room;
+            if (contextAlertSeverity) contextAlertSeverity.textContent = alert.severity;
+            if (contextAlertText) contextAlertText.textContent = alert.text;
+            renderDroneCandidatesForAlert(alert);
+            if (contextDrawer) contextDrawer.classList.remove('hide');
+        }
+        function selectAlertSupervisor(alertIdParam) {
+            selectedAlertIdSupervisor = alertIdParam;
+            const alert = alerts.find(a => a.id === selectedAlertIdSupervisor);
+            if (!alert) { if (supervisorAlertActions) supervisorAlertActions.classList.add('hide'); return; }
+            if (supervisorMapContainer && supervisorMapContainer.offsetParent) highlightRoomOnMap(alert.room, supervisorMapContainer.querySelector('svg'), 'supervisor', alert.severity === 'critical');
+            if (supervisorSelectedAlertIdDisplayEl) supervisorSelectedAlertIdDisplayEl.textContent = alert.id.substring(0, 8) + "...";
+            if (supervisorAlertActions) supervisorAlertActions.classList.remove('hide');
+            if (supervisorAssignGuardBtn) supervisorAssignGuardBtn.disabled = !findNearestAvailableGuard(alert);
+            if (supervisorRequestDroneBtn) supervisorRequestDroneBtn.disabled = false;
+            if (supervisorAckAlertBtn) supervisorAckAlertBtn.disabled = !['open', 'dispatched', 'guard_assigned'].includes(alert.status);
+            if (supervisorFalseAlarmAlertBtn) supervisorFalseAlarmAlertBtn.disabled = !['open', 'dispatched', 'guard_assigned'].includes(alert.status);
+            if (selectedGuardIdSupervisor && assignGuardToAlertBtn) {
+                assignGuardToAlertBtn.disabled = alert.status !== 'open';
+            }
+            if (supervisorAlertFeedTableBody) renderAlertFeed(alerts, supervisorAlertFeedTableBody, selectAlertSupervisor, selectedAlertIdSupervisor, getSupervisorFilters());
+        }
+        function selectAlertAnalyst(alertIdParam) {
+            selectedAlertIdAnalyst = alertIdParam;
+            const alert = alerts.find(a => a.id === selectedAlertIdAnalyst) || resolvedAlerts.find(a => a.id === selectedAlertIdAnalyst);
+            if (!alert) {
+                if (analystSelectedAlertIdEl) analystSelectedAlertIdEl.textContent = 'N/A';
+                if (labelAlertTrueBtn) labelAlertTrueBtn.disabled = true;
+                if (labelAlertFalseBtn) labelAlertFalseBtn.disabled = true;
+                updateAIInsights(null); updateDroneIntel(null);
+                if (analystShareIntelBtnEl) analystShareIntelBtnEl.classList.add('hide');
+                if (analystAlertFeedTableBody) renderAlertFeed(alerts, analystAlertFeedTableBody, selectAlertAnalyst, selectedAlertIdAnalyst, getAnalystFilters());
+                return;
+            }
+            if (analystSelectedAlertIdEl) analystSelectedAlertIdEl.textContent = alert.id.substring(0, 8) + "... (" + alert.status + ")";
+            const canLabel = ['open', 'dispatched', 'guard_assigned'].includes(alert.status) && !alert.analystLabel;
+            if (labelAlertTrueBtn) labelAlertTrueBtn.disabled = !canLabel;
+            if (labelAlertFalseBtn) labelAlertFalseBtn.disabled = !canLabel;
+            updateAIInsights(alert); updateDroneIntel(alert);
+            if (analystAlertFeedTableBody) renderAlertFeed(alerts, analystAlertFeedTableBody, selectAlertAnalyst, selectedAlertIdAnalyst, getAnalystFilters());
+        }
+        function closeContextDrawer() { if (contextDrawer) contextDrawer.classList.add('hide'); selectedDroneIdForDispatch = null; }
+        function findDroneCandidates(alert) {
+            const alertRoomCenter = ROOMS[alert.room] ? { x: ROOMS[alert.room].centerX, y: ROOMS[alert.room].centerY } : null;
+            if (!alertRoomCenter) return [];
+            return drones.filter(drone => drone.battery > 30 && (drone.state === 'idle' || drone.state === 'patrol' || drone.state === 'charging'))
+                .map(drone => {
+                    const dist = getDistance(drone, alertRoomCenter); let score = 0;
+                    if (drone.state === 'idle') score += 1000; if (drone.state === 'patrol') score += 500;
+                    score -= dist; score += drone.battery * 2;
+                    return { ...drone, dist, score };
+                }).sort((a, b) => b.score - a.score).slice(0, 3);
+        }
+        function renderDroneCandidatesForAlert(alert) {
+            if (!contextDroneCandidateList || !contextDispatchBtn) return;
+            const candidates = findDroneCandidates(alert);
+            contextDroneCandidateList.innerHTML = ''; selectedDroneIdForDispatch = null; contextDispatchBtn.disabled = true;
+            if (candidates.length === 0) { contextDroneCandidateList.innerHTML = '<li>No suitable drones available.</li>'; return; }
+            candidates.forEach((drone, index) => {
+                const li = document.createElement('li');
+                li.textContent = `Drone ${drone.id}: ${drone.battery.toFixed(0)}% batt, ${drone.dist.toFixed(0)}px away, ${drone.state}. ${index === 0 ? "(Rec.)" : ""}`;
+                li.onclick = () => {
+                    selectedDroneIdForDispatch = drone.id;
+                    contextDroneCandidateList.querySelectorAll('li').forEach(item => item.classList.remove('selected-candidate'));
+                    li.classList.add('selected-candidate'); contextDispatchBtn.disabled = false;
+                };
+                contextDroneCandidateList.appendChild(li); if (index === 0) li.click();
+            });
+        }
+        function dispatchDroneToAlert(droneId, alertIdToDispatch, dispatcherRole = currentRole) {
+            const drone = drones.find(d => d.id === droneId); const alert = alerts.find(a => a.id === alertIdToDispatch);
+            if (!drone || !alert || !ROOMS[alert.room]) {
+                showToast(`Dispatch failed: Invalid drone, alert, or room.`, "error"); return false;
+            }
+            if (drone.battery < 20 && drone.state !== 'charging') {
+                showToast(`Dispatch failed: Drone ${drone.id} battery too low (${drone.battery.toFixed(0)}%) and not charging.`, "warning"); return false;
+            }
+            drone.previousState = drone.state; drone.previousTarget = drone.target;
+            drone.state = 'responding'; drone.target = { x: ROOMS[alert.room].centerX, y: ROOMS[alert.room].centerY };
+            drone.path = []; alert.status = 'dispatched'; alert.dispatchedDroneId = drone.id;
+            addCommsLog(`Drone ${drone.id} dispatched to ${alert.room} for alert ${alert.id}.`, dispatcherRole);
+            showToast(`Drone ${drone.id} dispatched to ${alert.room}.`, "success");
+            refreshVisibleAlertFeeds();
+            if (currentRole === 'Operator') updateDroneChips();
+            closeContextDrawer();
+            if (quickTriageDispatchBtn && quickTriagePanelModule && quickTriagePanelModule.offsetParent) quickTriageDispatchBtn.disabled = true;
+            return true;
+        }
+        function renderQuickTriagePanel() {
+            if (currentRole === 'Operator' && selectedAlertId && quickTriagePanelModule) {
+                const alert = alerts.find(a => a.id === selectedAlertId);
+                if (alert && (alert.status === 'open' || alert.status === 'dispatched' || alert.status === 'guard_assigned')) {
+                    quickTriagePanelModule.classList.remove('hide');
+                    const candidates = findDroneCandidates(alert);
+                    if (quickTriageDispatchBtn) quickTriageDispatchBtn.disabled = alert.status === 'dispatched' || alert.status === 'guard_assigned' || candidates.length === 0;
+                    if (quickTriageAcknowledgeBtn) quickTriageAcknowledgeBtn.disabled = false;
+                    if (quickTriageMarkFalseBtn) quickTriageMarkFalseBtn.disabled = false;
+                    if (quickTriageOpenContextDrawerBtn) quickTriageOpenContextDrawerBtn.disabled = false;
+                    return;
+                }
+            }
+            if (quickTriagePanelModule) quickTriagePanelModule.classList.add('hide');
+        }
+        function acknowledgeAlert(alertIdToAck, resolutionType = 'acknowledged', responder = currentRole) {
+            const alertIndex = alerts.findIndex(a => a.id === alertIdToAck);
+            if (alertIndex === -1) {
+                showToast(`Alert ${alertIdToAck} not found or already resolved.`, "warning"); return;
+            }
+            const alert = alerts[alertIndex]; alerts.splice(alertIndex, 1);
+            alert.status = resolutionType; alert.resolutionTime = new Date().toLocaleTimeString(); alert.responder = responder;
+            resolvedAlerts.unshift(alert); if (resolvedAlerts.length > 100) resolvedAlerts.pop();
+            addCommsLog(`Alert ${alert.id} (${alert.room}) marked as ${resolutionType}.`, responder);
+            showToast(`Alert ${alert.id} marked as ${resolutionType}.`, "info");
+            if (selectedAlertId === alertIdToAck && currentRole === 'Operator') {
+                selectedAlertId = null; closeContextDrawer(); renderQuickTriagePanel(); if (floorPlanSvg) highlightRoomOnMap(null);
+            }
+            if (selectedAlertIdSupervisor === alertIdToAck && currentRole === 'Supervisor') {
+                selectedAlertIdSupervisor = null; if (supervisorAlertActions) supervisorAlertActions.classList.add('hide');
+                if (supervisorMapContainer && supervisorMapContainer.offsetParent) highlightRoomOnMap(null, supervisorMapContainer.querySelector('svg'), 'supervisor');
+            }
+            if (selectedAlertIdAnalyst === alertIdToAck && currentRole === 'Analyst') {
+                if (analystSelectedAlertIdEl) analystSelectedAlertIdEl.textContent = alert.id.substring(0, 8) + "... (" + alert.status + ")";
+                if (labelAlertTrueBtn) labelAlertTrueBtn.disabled = true;
+                if (labelAlertFalseBtn) labelAlertFalseBtn.disabled = true;
+            }
+            refreshVisibleAlertFeeds(); renderIncidentTimeline(); updateStatusStripAndKPIs();
+            if (directorCriticalAlertsTableBody && directorCriticalAlertsTableBody.offsetParent) renderDirectorCriticalAlerts();
+        }
+
+        // ---------- AI ASSISTANT (Operator) ----------
+        function handleAIChat() {
+            if (!aiChatInput || !aiChatMessages) return;
+            const input = aiChatInput.value.trim().toLowerCase(); if (!input) return;
+            appendAIChatMessage(input, 'user'); aiChatInput.value = '';
+            let response = "I'm a demo bot 🤖. I can: 'best drone for alert [ID]?', 'explain low priority', 'dispatch D-[num] to alert [ID]', 'ack alert [ID]'";
+            const droneMatch = input.match(/which drone for alert (\S+)|best drone for alert (\S+)/);
+            const dispatchMatch = input.match(/dispatch (d-\d+) to alert (\S+)/);
+            const ackMatch = input.match(/acknowledge alert (\S+)|ack alert (\S+)/);
+
+            if (input.includes("which drone") && !droneMatch) {
+                const currentAlert = selectedAlertId ? alerts.find(a => a.id === selectedAlertId) : alerts.find(a => a.status === 'open' && a.severity === 'critical');
+                if (currentAlert) {
+                    const candidates = findDroneCandidates(currentAlert);
+                    response = candidates.length > 0 ? `For alert ${currentAlert.id}: Best is ${candidates[0].id}. Options: ${candidates.map(c => c.id).join(', ')}.` : "No suitable drones for current/top alert.";
+                } else { response = "Specify an alert ID or select an alert."; }
+            } else if (droneMatch) {
+                const alertForAIChat = alerts.find(a => a.id === (droneMatch[1] || droneMatch[2])?.toUpperCase());
+                if (alertForAIChat) {
+                    const candidates = findDroneCandidates(alertForAIChat);
+                    response = candidates.length > 0 ? `For alert ${alertForAIChat.id}: Best is ${candidates[0].id}. Options: ${candidates.map(c => c.id).join(', ')}.` : `No suitable drones for alert ${alertForAIChat.id}.`;
+                } else { response = `Alert ${(droneMatch[1] || droneMatch[2])?.toUpperCase()} not found.`; }
+            } else if (input.includes("explain low priority")) {
+                response = "Low priority alerts: minor sensor deviations or high uncertainty. Logged, typically no immediate dispatch unless correlated.";
+            } else if (dispatchMatch) {
+                const droneIdAI = dispatchMatch[1].toUpperCase(); const alertIdAI = dispatchMatch[2].toUpperCase();
+                if (drones.find(d => d.id === droneIdAI) && alerts.find(a => a.id === alertIdAI)) {
+                    response = dispatchDroneToAlert(droneIdAI, alertIdAI, 'Operator (via AI)') ? `Drone ${droneIdAI} dispatched to alert ${alertIdAI}.` : `Failed dispatch of ${droneIdAI}.`;
+                } else { response = "Invalid drone/alert ID for dispatch." }
+            } else if (ackMatch) {
+                const alertIdToAckAI = (ackMatch[1] || ackMatch[2])?.toUpperCase();
+                if (alerts.find(a => a.id === alertIdToAckAI)) {
+                    acknowledgeAlert(alertIdToAckAI, 'acknowledged_by_AI_cmd', 'Operator (via AI)');
+                    response = `Alert ${alertIdToAckAI} acknowledged.`;
+                } else { response = `Alert ${alertIdToAckAI} not found or already resolved.` }
+            }
+            setTimeout(() => appendAIChatMessage(response, 'bot'), 300);
+        }
+        function appendAIChatMessage(text, sender) {
+            if (!aiChatMessages) return;
+            const msgDiv = document.createElement('div'); msgDiv.textContent = text;
+            msgDiv.className = sender === 'user' ? 'ai-user' : 'ai-bot';
+            aiChatMessages.appendChild(msgDiv); aiChatMessages.scrollTop = aiChatMessages.scrollHeight;
+        }
+
+        // ---------- PATROL COMPOSER (Operator) ----------
+        function resizePatrolCanvas() {
+            if (!mapContainer || !patrolComposerCanvas || !mapContainer.offsetParent) return;
+            const mapRect = mapContainer.getBoundingClientRect();
+            patrolComposerCanvas.width = mapRect.width; patrolComposerCanvas.height = mapRect.height;
+            renderAllStoredPatrolPaths();
+        }
+        function togglePatrolComposing() {
+            if (currentRole !== 'Operator' || !patrolComposeBtn || !patrolComposerCanvas || !patrolDroneSelect || !patrolDeleteLastBtn || !patrolClearCurrentBtn) return;
+            isComposingPatrol = !isComposingPatrol;
+            patrolComposeBtn.textContent = isComposingPatrol ? "Finish Patrol Path" : "Start Patrol Path";
+            patrolComposerCanvas.classList.toggle('active', isComposingPatrol);
+            patrolDeleteLastBtn.disabled = !isComposingPatrol || currentPatrolPoints.length === 0;
+            patrolClearCurrentBtn.disabled = !isComposingPatrol || currentPatrolPoints.length === 0;
+            if (isComposingPatrol) {
+                currentPatrolDroneId = patrolDroneSelect.value;
+                if (!currentPatrolDroneId) {
+                    showToast("Please select a drone for patrol path.", "warning");
+                    isComposingPatrol = false; patrolComposeBtn.textContent = "Start Patrol Path"; patrolComposerCanvas.classList.remove('active'); return;
+                }
+                currentPatrolPoints = patrolPaths[currentPatrolDroneId] ? [...patrolPaths[currentPatrolDroneId]] : [];
+                clearPatrolCanvas(); renderAllStoredPatrolPaths();
+                drawPatrolPath(currentPatrolPoints, patrolComposerCanvas.getContext('2d'), '#007bff', 3);
+                addCommsLog(`Started composing patrol path for ${currentPatrolDroneId}.`, currentRole);
+            } else {
+                if (currentPatrolPoints.length > 1) {
+                    patrolPaths[currentPatrolDroneId] = [...currentPatrolPoints];
+                    localStorage.setItem('patrolPathsV3', JSON.stringify(patrolPaths));
+                    addCommsLog(`Patrol path saved for ${currentPatrolDroneId} with ${currentPatrolPoints.length} waypoints.`, currentRole);
+                } else if (currentPatrolPoints.length <= 1 && patrolPaths[currentPatrolDroneId]) {
+                    delete patrolPaths[currentPatrolDroneId]; localStorage.setItem('patrolPathsV3', JSON.stringify(patrolPaths));
+                    addCommsLog(`Patrol path for ${currentPatrolDroneId} cleared.`, currentRole);
+                } else { addCommsLog(`Patrol path for ${currentPatrolDroneId} not saved (too few points).`, currentRole); }
+                currentPatrolPoints = []; renderAllStoredPatrolPaths();
+            }
+        }
+        function handlePatrolCanvasClick(event) {
+            if (!isComposingPatrol || !currentPatrolDroneId || !patrolComposerCanvas || !patrolSnapToCenterCheckbox) return;
+            const canvasRect = patrolComposerCanvas.getBoundingClientRect();
+            let x = (event.clientX - canvasRect.left) * (MAP_WIDTH / canvasRect.width);
+            let y = (event.clientY - canvasRect.top) * (MAP_HEIGHT / canvasRect.height);
+            let pointDescription = `(${x.toFixed(0)}, ${y.toFixed(0)})`;
+            if (patrolSnapToCenterCheckbox.checked) {
+                let nearestRoomCenter = null; let minDist = Infinity;
+                for (const roomName in ROOMS) {
+                    const room = ROOMS[roomName]; const dist = getDistance({ x, y }, { x: room.centerX, y: room.centerY });
+                    if (dist < minDist) { minDist = dist; nearestRoomCenter = { x: room.centerX, y: room.centerY, roomName: roomName }; }
+                }
+                if (nearestRoomCenter) { x = nearestRoomCenter.x; y = nearestRoomCenter.y; pointDescription = `room ${nearestRoomCenter.roomName} center`; }
+            }
+            currentPatrolPoints.push({ x, y }); clearPatrolCanvas(); renderAllStoredPatrolPaths();
+            drawPatrolPath(currentPatrolPoints, patrolComposerCanvas.getContext('2d'), '#007bff', 3);
+            addCommsLog(`Waypoint added for ${currentPatrolDroneId} at ${pointDescription}.`, currentRole);
+            patrolDeleteLastBtn.disabled = false; patrolClearCurrentBtn.disabled = false;
+        }
+        function drawPatrolPath(points, ctx, color = 'rgba(100,100,255,0.5)', lineWidth = 2) {
+            if (!points || points.length < 1 || !ctx || !ctx.canvas || !ctx.canvas.offsetParent) return;
+            const canvasRect = ctx.canvas.getBoundingClientRect();
+            const scaleX = canvasRect.width / MAP_WIDTH; const scaleY = canvasRect.height / MAP_HEIGHT;
+            if (points.length >= 2) {
+                ctx.beginPath(); ctx.moveTo(points[0].x * scaleX, points[0].y * scaleY);
+                for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x * scaleX, points[i].y * scaleY);
+                ctx.strokeStyle = color; ctx.lineWidth = lineWidth; ctx.stroke();
+            }
+            points.forEach(p => {
+                ctx.beginPath(); ctx.arc(p.x * scaleX, p.y * scaleY, 3 * (lineWidth / 2), 0, 2 * Math.PI);
+                ctx.fillStyle = color; ctx.fill();
+            });
+        }
+        function clearPatrolCanvas() {
+            if (!patrolComposerCanvas || !patrolComposerCanvas.offsetParent) return;
+            const ctx = patrolComposerCanvas.getContext('2d');
+            ctx.clearRect(0, 0, patrolComposerCanvas.width, patrolComposerCanvas.height);
+        }
+        function renderAllStoredPatrolPaths() {
+            if (!patrolComposerCanvas || !patrolComposerCanvas.offsetParent) return;
+            clearPatrolCanvas(); const ctx = patrolComposerCanvas.getContext('2d');
+            for (const droneId in patrolPaths) {
+                if (patrolPaths[droneId] && patrolPaths[droneId].length > 0 && droneId !== currentPatrolDroneId) {
+                    drawPatrolPath(patrolPaths[droneId], ctx, 'rgba(150,150,200,0.4)');
+                }
+            }
+        }
+        function populatePatrolDroneSelect() {
+            if (!patrolDroneSelect) return;
+            patrolDroneSelect.innerHTML = '';
+            drones.forEach(d => { const option = document.createElement('option'); option.value = d.id; option.textContent = d.id; patrolDroneSelect.appendChild(option); });
+            if (drones.length > 0) { currentPatrolDroneId = drones[0].id; patrolDroneSelect.value = currentPatrolDroneId; }
+            patrolDroneSelect.onchange = () => {
+                if (isComposingPatrol) { togglePatrolComposing(); currentPatrolDroneId = patrolDroneSelect.value; togglePatrolComposing(); }
+                else {
+                    currentPatrolDroneId = patrolDroneSelect.value; renderAllStoredPatrolPaths();
+                    if (patrolPaths[currentPatrolDroneId] && patrolComposerCanvas && patrolComposerCanvas.offsetParent) {
+                        drawPatrolPath(patrolPaths[currentPatrolDroneId], patrolComposerCanvas.getContext('2d'), '#0056b3', 2.5);
+                    }
+                }
+            };
+        }
+        function deleteLastPatrolWaypoint() {
+            if (!isComposingPatrol || currentPatrolPoints.length === 0 || !patrolDeleteLastBtn) return;
+            currentPatrolPoints.pop();
+            clearPatrolCanvas(); renderAllStoredPatrolPaths();
+            if (patrolComposerCanvas && patrolComposerCanvas.offsetParent) drawPatrolPath(currentPatrolPoints, patrolComposerCanvas.getContext('2d'), '#007bff', 3);
+            addCommsLog(`Last waypoint deleted for ${currentPatrolDroneId}.`, currentRole);
+            patrolDeleteLastBtn.disabled = currentPatrolPoints.length === 0;
+        }
+        function clearCurrentPatrolPath() {
+            if (!isComposingPatrol || !patrolDeleteLastBtn || !patrolClearCurrentBtn) return;
+            currentPatrolPoints = [];
+            clearPatrolCanvas(); renderAllStoredPatrolPaths();
+            addCommsLog(`Current patrol path for ${currentPatrolDroneId} cleared.`, currentRole);
+            patrolDeleteLastBtn.disabled = true; patrolClearCurrentBtn.disabled = true;
+        }
+
+        // ---------- SENSOR FUSION LAB (Analyst) ----------
+        function initSensorCharts() {
+            const chartIds = ['motionChart', 'heatChart', 'pressureChart']; const contexts = {};
+            chartIds.forEach(id => { const canvas = document.getElementById(id); if (canvas) contexts[id.replace('Chart', '')] = canvas.getContext('2d'); });
+            motionChartCtx = contexts.motion; heatChartCtx = contexts.heat; pressureChartCtx = contexts.pressure;
+            for (let key in sensorData) for (let i = 0; i < MAX_SENSOR_POINTS; i++) sensorData[key].push(Math.random() * 50 + 25);
+        }
+        function updateSensorCharts() {
+            if (currentRole !== 'Analyst' || !motionChartCtx?.canvas?.offsetParent) return;
+            Object.keys(sensorData).forEach(key => {
+                const dataArray = sensorData[key]; dataArray.shift();
+                let newValue = dataArray[dataArray.length - 1] + (Math.random() - 0.5) * 15;
+                newValue = Math.max(0, Math.min(100, newValue)); dataArray.push(newValue);
+            });
+            if (motionChartCtx) drawChart(motionChartCtx, sensorData.motion, 'rgba(0,123,255,0.7)');
+            if (heatChartCtx) drawChart(heatChartCtx, sensorData.heat, 'rgba(255,100,0,0.7)');
+            if (pressureChartCtx) drawChart(pressureChartCtx, sensorData.pressure, 'rgba(100,100,100,0.7)');
+        }
+        function drawChart(ctx, data, color) {
+            if (!ctx || !ctx.canvas || !ctx.canvas.offsetParent) return;
+            const canvas = ctx.canvas; ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.beginPath(); const stepX = canvas.width / (MAX_SENSOR_POINTS - 1); const stepY = canvas.height / 100;
+            ctx.moveTo(0, canvas.height - data[0] * stepY);
+            for (let i = 1; i < data.length; i++) ctx.lineTo(i * stepX, canvas.height - data[i] * stepY);
+            ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
+        }
+        function labelSelectedAnalystAlert(isTruePositive) {
+            if (currentRole !== 'Analyst' || !selectedAlertIdAnalyst || !labelAlertTrueBtn || !labelAlertFalseBtn) {
+                showToast("No alert selected or UI elements missing.", "warning"); return;
+            }
+            const alert = alerts.find(a => a.id === selectedAlertIdAnalyst);
+            if (!alert) {
+                const resolvedAlertCheck = resolvedAlerts.find(a => a.id === selectedAlertIdAnalyst);
+                if (resolvedAlertCheck) showToast("Cannot label an already resolved alert.", "info");
+                else showToast("Selected alert not found.", "warning");
+                return;
+            }
+            if (!['open', 'dispatched', 'guard_assigned'].includes(alert.status)) {
+                showToast(`Cannot label alert with status: ${alert.status}.`, "info"); return;
+            }
+            const labelValue = isTruePositive ? 'TRUE_POSITIVE_ANALYST' : 'FALSE_POSITIVE_ANALYST';
+            alert.analystLabel = labelValue;
+            if (!isTruePositive) { acknowledgeAlert(alert.id, 'false_alarm_by_analyst', 'Analyst'); }
+            else {
+                addCommsLog(`Analyst labelled Alert ${alert.id} as ${labelValue}.`, "Analyst");
+                showToast(`Alert ${alert.id} labelled ${labelValue}.`, "success");
+                refreshVisibleAlertFeeds();
+            }
+            updateAIInsights(alert);
+            labelAlertTrueBtn.disabled = true; labelAlertFalseBtn.disabled = true;
+        }
+        function updateAIInsights(alert) {
+            if (!aiInsightsContentEl || !aiInsightsContentEl.offsetParent) return;
+            let insightHTML = ""; const tags = [];
+            if (alert) {
+                insightHTML += `<p><strong>AI Analysis for Alert ${alert.id.substring(0, 6)}... (${alert.room}, Status: ${alert.status}):</strong></p>
+                                <pre style="white-space: pre-wrap; word-wrap: break-word;">`;
+                let confidenceReason = "Standard deviation exceeded typical threshold.";
+                if (alert.severity === 'critical' && alert.text.includes("Forced")) {
+                    confidenceReason = "High correlation with access control event (Door Forced). Multiple sensors indicate breach.";
+                } else if (alert.severity === 'warning' && alert.text.includes("Offline")) {
+                    confidenceReason = "Sensor anomaly potentially linked to CCTV C-G02 outage. Investigate equipment malfunction.";
+                }
+
+                let motionVal = 30 + Math.floor(Math.random() * 20);
+                let heatVal = 20 + Math.floor(Math.random() * 15);
+                let confidence = "Low (55%)"; tags.push("Routine Scan");
+                if (alert.severity === 'warning') {
+                    motionVal = 50 + Math.floor(Math.random() * 25); heatVal = 35 + Math.floor(Math.random() * 20);
+                    confidence = "Moderate (70%)"; tags.push("Unusual Pattern");
+                }
+                if (alert.severity === 'critical') {
+                    motionVal = 70 + Math.floor(Math.random() * 25); heatVal = 50 + Math.floor(Math.random() * 25);
+                    confidence = "High (85%)"; tags.push("Critical Anomaly Signature");
+                }
+                insightHTML += `  - Confidence of actual event: ${confidence}.\n`;
+                insightHTML += `  - Reasoning: ${confidenceReason}\n`;
+                insightHTML += `  - Correlated sensor readings at alert time (mock):\n`;
+                insightHTML += `    - Motion Sensor M-${alert.room.charAt(0)}01: ${motionVal} units.\n`;
+                insightHTML += `    - Heat Sensor H-${alert.room.charAt(0)}02: ${heatVal}°C.\n`;
+                if (motionVal > 65) { insightHTML += `    - Significant motion spike detected.\n`; tags.push("Motion Spike"); }
+                if (heatVal > 45) { insightHTML += `    - Elevated thermal signature noted.\n`; tags.push("Elevated Thermal"); }
+                if (alert.dispatchedDroneId) {
+                    insightHTML += `  - Drone ${alert.dispatchedDroneId} was dispatched. Check Drone Intel.\n`; tags.push("Drone Dispatched");
+                } else { insightHTML += `  - No drone dispatched for this alert yet.\n`; tags.push("No Drone"); }
+                if (alert.assignedGuardId) { insightHTML += `  - Guard ${alert.assignedGuardId} was assigned.\n`; tags.push("Guard Assigned"); }
+                if (alert.analystLabel) {
+                    insightHTML += `  - Analyst Label: ${alert.analystLabel}\n`; tags.push(alert.analystLabel.replace(/_/g, ' '));
+                } else { insightHTML += `  - Pending analyst review and labelling.\n`; tags.push("Needs Labelling"); }
+                insightHTML += `</pre>`;
+            } else {
+                insightHTML = `<p><strong>AI System Monitoring:</strong> All sensors nominal. Actively scanning for anomalies. Select an alert from the feed for detailed contextual analysis and insights.</p>`;
+                tags.push("System Nominal", "Active Monitoring");
+            }
+            if (tags.length > 0) {
+                insightHTML += `<div class="ai-insight-tags"><strong>AI Tags:</strong> ${tags.map(tag => `<span>${tag}</span>`).join(' ')}</div>`;
+            }
+            aiInsightsContentEl.innerHTML = insightHTML;
+        }
+        function updateDroneIntel(alert) {
+            if (!droneIntelContentEl || !droneIntelContentEl.offsetParent || !analystShareIntelBtnEl) return;
+            if (alert && alert.dispatchedDroneId) {
+                const drone = drones.find(d => d.id === alert.dispatchedDroneId);
+                if (!drone) {
+                    droneIntelContentEl.innerHTML = `<p>Intel for Drone ${alert.dispatchedDroneId} not available (drone not found).</p>`;
+                    analystShareIntelBtnEl.classList.add('hide'); return;
+                }
+                let droneIntelText = `<p><strong>Intel from Drone ${alert.dispatchedDroneId} for Alert ${alert.id.substring(0, 6)}:</strong></p>
+                    <p>Current Status: ${drone.state} ${drone.isScanning ? '(Scanning Area)' : ''} in ${drone.currentRoom}. Battery: ${drone.battery.toFixed(0)}%.</p>
+                    <p><em>(Mock) Last image received shows normal activity. No visual confirmation of threat.</em></p>`;
+                if (drone.isScanning && Math.random() < 0.3) {
+                    droneIntelText += `<p style="color: var(--warning-color);"><em>AI Object Detection (mock): Thermal signature resembling a hidden object detected near north wall. Recommend closer inspection.</em></p>`;
+                }
+
+                droneIntelContentEl.innerHTML = droneIntelText;
+                analystShareIntelBtnEl.classList.remove('hide');
+            } else {
+                droneIntelContentEl.innerHTML = `<p>Select an alert with a dispatched drone to view its intel.</p>`;
+                analystShareIntelBtnEl.classList.add('hide');
+            }
+        }
+        function analystShareIntel() {
+            if (!selectedAlertIdAnalyst) { showToast("No alert selected to share intel from.", "warning"); return; }
+            const alert = alerts.find(a => a.id === selectedAlertIdAnalyst) || resolvedAlerts.find(a => a.id === selectedAlertIdAnalyst);
+            if (alert && alert.dispatchedDroneId) {
+                const intelSummary = `Analyst Intel for ${alert.id}: Drone ${alert.dispatchedDroneId} in ${alert.room} reports (mock) normal activity.`;
+                addCommsLog(intelSummary, "Analyst");
+                showToast("Intel shared with Supervisor (via Comms Log).", "success");
+            } else { showToast("No drone intel to share for this alert.", "info"); }
+        }
+
+        // ---------- GUARD TRACKER & COORDINATION (Supervisor) ----------
+        function renderGuardTracker() {
+            if (!guardListEl || !guardListEl.offsetParent) return;
+            guardListEl.innerHTML = '';
+            guards.forEach(guard => {
+                const li = document.createElement('li');
+                let guardStatusText = `${guard.name} (${guard.id}) - ${guard.currentRoom} - ${guard.status}`;
+                if (guard.assignedAlertId && guard.status.startsWith("Responding")) {
+                    const targetAlert = alerts.find(a => a.id === guard.assignedAlertId);
+                    if (targetAlert && ROOMS[targetAlert.room]) {
+                        const dist = getDistance(guard, ROOMS[targetAlert.room]);
+                        const etaMinutes = Math.ceil(dist / (DRONE_SPEED * 10));
+                        guardStatusText += ` (ETA: ${etaMinutes} min to ${targetAlert.room})`;
+                    }
+                } else if (guard.assignedAlertId) {
+                    guardStatusText += ` (Alert ${guard.assignedAlertId.substring(0, 6)}...)`;
+                }
+                li.textContent = guardStatusText;
+                li.onclick = () => selectGuardSupervisor(guard.id);
+                if (guard.id === selectedGuardIdSupervisor) li.classList.add('selected-guard');
+                guardListEl.appendChild(li);
+            });
+        }
+        function selectGuardSupervisor(guardId) {
+            if (!guardDetailsPanel || !detailGuardName || !detailGuardStatus || !assignGuardToAlertBtn) return;
+            selectedGuardIdSupervisor = guardId; const guard = guards.find(g => g.id === guardId); if (!guard) return;
+            guardDetailsPanel.classList.remove('hide'); detailGuardName.textContent = guard.name;
+            detailGuardStatus.textContent = `${guard.status} in ${guard.currentRoom}`;
+            const selectedAlertForGuard = selectedAlertIdSupervisor ? alerts.find(a => a.id === selectedAlertIdSupervisor) : null;
+            assignGuardToAlertBtn.disabled = !selectedAlertIdSupervisor || (selectedAlertForGuard?.status !== 'open');
+            renderGuardTracker();
+        }
+        function assignSelectedGuardToSelectedAlert() {
+            if (!selectedGuardIdSupervisor || !selectedAlertIdSupervisor) { showToast("Please select both a guard and an alert.", "warning"); return; }
+            const guard = guards.find(g => g.id === selectedGuardIdSupervisor); const alert = alerts.find(a => a.id === selectedAlertIdSupervisor);
+            if (!guard || !alert) { showToast("Selected guard or alert not found.", "error"); return; }
+            if (alert.status !== 'open') { showToast("Can only assign guards to 'open' alerts.", "info"); return; }
+            if (guard.assignedAlertId) { showToast(`Guard ${guard.name} is already assigned to Alert ${guard.assignedAlertId}.`, "warning"); return; }
+            guard.assignedAlertId = alert.id; guard.status = `Responding to ${alert.id.substring(0, 6)}`;
+            alert.status = 'guard_assigned'; alert.assignedGuardId = guard.id;
+            addCommsLog(`Guard ${guard.id} assigned to alert ${alert.id} in ${alert.room} by Supervisor.`, "Supervisor");
+            showToast(`Guard ${guard.id} assigned to alert ${alert.id}.`, "success");
+            renderGuardTracker(); refreshVisibleAlertFeeds(); updateStatusStripAndKPIs();
+            if (guardDetailsPanel) guardDetailsPanel.classList.add('hide'); selectedGuardIdSupervisor = null;
+        }
+        function sendCustomMessageToGuard() {
+            if (!selectedGuardIdSupervisor || !customGuardMessageInput) { showToast("Please select a guard and ensure message input exists.", "warning"); return; }
+            const guard = guards.find(g => g.id === selectedGuardIdSupervisor); const message = customGuardMessageInput.value.trim();
+            if (!message) { showToast("Message cannot be empty.", "warning"); return; }
+            addCommsLog(`Message to ${guard.id} ('${message}') sent by Supervisor. (Mocked)`, "Supervisor");
+            showToast(`Mock: Message "${message}" sent to ${guard.name}.`, "info"); customGuardMessageInput.value = '';
+        }
+        function supervisorAssignNearestGuard() {
+            if (!selectedAlertIdSupervisor) { showToast("Please select an alert first.", "warning"); return; }
+            const alert = alerts.find(a => a.id === selectedAlertIdSupervisor);
+            if (!alert || alert.status !== 'open') { showToast("Alert not found or not open for guard assignment.", "info"); return; }
+            const nearestGuard = findNearestAvailableGuard(alert);
+            if (nearestGuard) {
+                nearestGuard.assignedAlertId = alert.id; nearestGuard.status = `Responding to ${alert.id.substring(0, 6)}`;
+                alert.status = 'guard_assigned'; alert.assignedGuardId = nearestGuard.id;
+                addCommsLog(`Nearest guard ${nearestGuard.id} assigned to alert ${alert.id} by Supervisor.`, "Supervisor");
+                showToast(`Nearest guard ${nearestGuard.id} assigned to alert ${alert.id}.`, "success");
+                renderGuardTracker(); refreshVisibleAlertFeeds(); updateStatusStripAndKPIs();
+            } else {
+                showToast("No available guards found near the alert.", "info");
+                addCommsLog(`No available guards found for alert ${alert.id}.`, "Supervisor");
+            }
+        }
+        function findNearestAvailableGuard(alertToAssign) {
+            const alertRoomCenter = ROOMS[alertToAssign.room] ? { x: ROOMS[alertToAssign.room].centerX, y: ROOMS[alertToAssign.room].centerY } : null;
+            if (!alertRoomCenter) return null; let bestGuard = null; let minDistance = Infinity;
+            guards.filter(g => g.online && !g.assignedAlertId).forEach(guard => {
+                const dist = getDistance(guard, alertRoomCenter);
+                if (dist < minDistance) { minDistance = dist; bestGuard = guard; }
+            }); return bestGuard;
+        }
+        function supervisorRequestDroneSupport() {
+            if (!selectedAlertIdSupervisor) { showToast("Please select an alert to request drone support for.", "warning"); return; }
+            const alert = alerts.find(a => a.id === selectedAlertIdSupervisor); if (!alert) return;
+            notifyOperatorOfDroneRequest(alert, "Supervisor");
+        }
+        function notifyOperatorOfDroneRequest(alert, requestingRole) {
+            addCommsLog(`${requestingRole} requested drone support for alert ${alert.id} (${alert.room}). Forwarding to Operator.`, requestingRole);
+            showToast(`${requestingRole} requests drone for alert ${alert.id} in ${alert.room}.`, "info", 10000, {
+                text: "View Alert (Operator)",
+                action: () => {
+                    if (currentRole !== 'Operator') {
+                        if (rolePicker) rolePicker.value = "Operator";
+                        switchRole("Operator");
+                    }
+                    setTimeout(() => selectAlertOperator(alert.id), 100);
+                }
+            });
+        }
+        function updateGuards() {
+            guards.forEach(guard => {
+                if (guard.online && guard.onPatrol && !guard.assignedAlertId) {
+                    if (Math.random() < 0.03) {
+                        const roomNames = Object.keys(ROOMS); const newRoomName = roomNames[Math.floor(Math.random() * roomNames.length)];
+                        guard.currentRoom = newRoomName;
+                        guard.x = ROOMS[newRoomName].centerX + (Math.random() - 0.5) * ROOMS[newRoomName].width * 0.4;
+                        guard.y = ROOMS[newRoomName].centerY + (Math.random() - 0.5) * ROOMS[newRoomName].height * 0.4;
+                    }
+                } else if (guard.assignedAlertId) {
+                    const targetAlert = alerts.find(a => a.id === guard.assignedAlertId) || resolvedAlerts.find(a => a.id === guard.assignedAlertId);
+                    if (targetAlert && ROOMS[targetAlert.room]) {
+                        const targetPos = { x: ROOMS[targetAlert.room].centerX, y: ROOMS[targetAlert.room].centerY };
+                        const distToTarget = getDistance(guard, targetPos);
+                        if (distToTarget > 15) {
+                            const angle = Math.atan2(targetPos.y - guard.y, targetPos.x - guard.x);
+                            guard.x += Math.cos(angle) * (DRONE_SPEED * 1.5); guard.y += Math.sin(angle) * (DRONE_SPEED * 1.5);
+                            guard.currentRoom = getRoomForCoords(guard.x, guard.y);
+                        } else { guard.currentRoom = targetAlert.room; }
+                    }
+                }
+            });
+            if (guardListEl && guardListEl.offsetParent) renderGuardTracker();
+        }
+        function saveSupervisorShiftNotes() {
+            if (!supervisorShiftNotesEl) return;
+            const notes = supervisorShiftNotesEl.value;
+            localStorage.setItem('supervisorShiftNotes', notes);
+            addCommsLog("Shift notes saved by Supervisor.", "Supervisor");
+            showToast("Shift notes saved.", "success");
+        }
+
+
+        // ---------- COMMS LOG ----------
+        function renderCommsLog(containerEl) {
+            if (!containerEl || !containerEl.offsetParent) return;
+            containerEl.innerHTML = '';
+            commsLogEntries.slice(0, 25).forEach(entry => {
+                const p = document.createElement('p');
+                p.textContent = `[${entry.timestamp}] ${entry.actor}: ${entry.message}`;
+                containerEl.appendChild(p);
+            });
+        }
+
+        // ---------- INCIDENT TIMELINE & CSV EXPORT ----------
+        function renderIncidentTimeline() {
+            const setupTable = (tbody) => {
+                if (!tbody || !tbody.offsetParent) return;
+                tbody.innerHTML = '';
+                resolvedAlerts.forEach(alert => {
+                    const row = tbody.insertRow();
+                    row.insertCell().textContent = alert.id;
+                    row.insertCell().textContent = alert.resolutionTime || alert.time;
+                    row.insertCell().textContent = alert.room;
+                    const sevCell = row.insertCell(); sevCell.textContent = `${SEVERITY_ICONS[alert.severity]} ${alert.severity}`; sevCell.className = `severity-${alert.severity}`;
+                    row.insertCell().textContent = alert.status;
+                    row.insertCell().textContent = alert.responder || 'N/A';
+                    row.insertCell().textContent = alert.analystLabel || 'N/A';
+                    row.insertCell().textContent = alert.dispatchedDroneId || 'N/A';
+                    row.insertCell().textContent = alert.assignedGuardId || 'N/A';
+                });
+            };
+            if (analystIncidentTimelineTableBody) setupTable(analystIncidentTimelineTableBody);
+            if (supervisorIncidentTimelineTableBody) setupTable(supervisorIncidentTimelineTableBody);
+        }
+        function exportTimelineToCSV() {
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += "ID,Time,Room,Severity,Resolution,Responder,AnalystLabel,DispatchedDrone,AssignedGuard\n";
+            resolvedAlerts.forEach(alert => {
+                const row = [alert.id, alert.resolutionTime || alert.time, alert.room, alert.severity, alert.status, alert.responder || '', alert.analystLabel || '', alert.dispatchedDroneId || '', alert.assignedGuardId || ''].map(val => `"${String(val).replace(/"/g, '""')}"`).join(",");
+                csvContent += row + "\n";
+            });
+            const encodedUri = encodeURI(csvContent); const link = document.createElement("a");
+            link.setAttribute("href", encodedUri); link.setAttribute("download", "incidents_report.csv");
+            document.body.appendChild(link); link.click(); document.body.removeChild(link);
+            addCommsLog("Incident timeline exported to CSV.", currentRole);
+            showToast("Incident timeline exported.", "success");
+        }
+
+        // ---------- DRONE HEALTH DASHBOARD  ----------
+        function renderDroneHealthDashboard(containerEl) {
+            if (!containerEl || !containerEl.offsetParent) return;
+            containerEl.innerHTML = '';
+            drones.forEach(drone => {
+                const card = document.createElement('div'); card.className = 'drone-health-card';
+                const lowBatteryMaintenance = drone.battery < 20 && drone.state !== 'charging';
+                const lastMaintDate = drone.lastMaintenance ? new Date(drone.lastMaintenance).toLocaleDateString() : 'N/A';
+                let statusText = drone.state;
+                if (drone.isScanning) statusText += " (Scanning)";
+
+                card.innerHTML = `<h4>${drone.id}</h4>
+                    <div class="battery-bar-container"><div class="battery-bar" style="width:${drone.battery.toFixed(0)}%; background-color: ${drone.battery < 20 ? 'red' : drone.battery < 50 ? 'orange' : 'green'};"></div></div>
+                    <p style="font-size:1em;">${drone.battery.toFixed(0)}%</p>
+                    <p style="font-size:0.9em; font-weight:normal;">State: ${statusText}</p>
+                    <p style="font-size:0.9em; font-weight:normal;">Cycles: ${drone.cyclesToday || 0}</p>
+                    ${lowBatteryMaintenance ? `<p class="maintenance-flag">⚠️ Low Batt Maintenance</p>` : ''}
+                    <p style="font-size:0.8em; font-weight:normal; color:#555;">Last Maint: ${lastMaintDate}</p>`;
+                containerEl.appendChild(card);
+            });
+        }
+
+        // ---------- FPV Drone Operator View ----------
+        function initializeFpvObjects() {
+            fpvObjects = [];
+            for (let i = 0; i < 10; i++) {
+                fpvObjects.push({
+                    x: Math.random() * FPV_CANVAS_WIDTH * 2 - FPV_CANVAS_WIDTH,
+                    y: FPV_CANVAS_HEIGHT * 0.6 + Math.random() * FPV_CANVAS_HEIGHT * 0.3,
+                    z: Math.random() * 500 + 50,
+                    width: Math.random() * 30 + 20, height: Math.random() * 50 + 30,
+                    color: `rgb(${Math.floor(Math.random() * 100)}, ${Math.floor(Math.random() * 100)}, ${Math.floor(Math.random() * 100)})`
+                });
+            }
+        }
+        function setupFpvView() {
+            const drone = currentManuallyControlledDroneId ? drones.find(d => d.id === currentManuallyControlledDroneId) : null;
+            if (fpvDroneIdEl) fpvDroneIdEl.textContent = drone ? drone.id : "N/A";
+            if (drone && drone.state === 'manual') {
+                updateFpvTelemetry(drone);
+                if (fpvReturnControlBtn) fpvReturnControlBtn.disabled = false;
+                if (!fpvObjects.length) initializeFpvObjects();
+                renderFpv(); renderDroneOperatorMiniMap();
+            } else {
+                if (fpvDroneStatusEl) fpvDroneStatusEl.textContent = "No Drone Selected/Manual";
+                if (fpvDroneBatteryEl) fpvDroneBatteryEl.textContent = "N/A";
+                if (fpvDroneRoomEl) fpvDroneRoomEl.textContent = "N/A";
+                if (fpvReturnControlBtn) fpvReturnControlBtn.disabled = true;
+                currentManuallyControlledDroneId = null;
+                if (fpvCanvas) {
+                    const ctx = fpvCanvas.getContext('2d');
+                    ctx.clearRect(0, 0, fpvCanvas.width, fpvCanvas.height);
+                    ctx.fillStyle = "#555"; ctx.font = "16px Segoe UI";
+                    ctx.textAlign = "center";
+                    ctx.fillText("No drone under manual FPV control.", fpvCanvas.width / 2, fpvCanvas.height / 2);
+                }
+                if (droneOperatorMapContainer && droneOperatorMapContainer.offsetParent) {
+                    const svg = droneOperatorMapContainer.querySelector('svg');
+                    if (svg) svg.innerHTML = '';
+                }
+            }
+        }
+        function updateFpvTelemetry(drone) {
+            if (!drone || !fpvDroneStatusEl || !fpvDroneBatteryEl || !fpvDroneRoomEl) return;
+            let statusText = drone.state;
+            if (drone.isScanning) statusText += " (Scanning)";
+            fpvDroneStatusEl.textContent = statusText;
+            fpvDroneBatteryEl.textContent = drone.battery.toFixed(0);
+            fpvDroneRoomEl.textContent = drone.currentRoom;
+        }
+        function renderFpv() {
+            if (currentRole !== 'DroneOperator' || !fpvCanvas || !currentManuallyControlledDroneId) return;
+            const drone = drones.find(d => d.id === currentManuallyControlledDroneId);
+            if (!drone || drone.state !== 'manual') return;
+            const ctx = fpvCanvas.getContext('2d');
+            const canvasWidth = fpvCanvas.width; const canvasHeight = fpvCanvas.height;
+            ctx.fillStyle = '#70c5ce'; ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+            const horizonY = canvasHeight * 0.55;
+            ctx.fillStyle = '#5a8b3c'; ctx.fillRect(0, horizonY, canvasWidth, canvasHeight - horizonY);
+            fpvObjects.sort((a, b) => b.z - a.z);
+            fpvObjects.forEach(obj => {
+                const perspectiveScale = 50 / (50 + obj.z);
+                const dronePanEffect = (drone.x - MAP_WIDTH / 2) * 0.2;
+                const dronePitchEffect = (drone.y - MAP_HEIGHT / 2) * 0.1;
+                const screenX = (obj.x - dronePanEffect) * perspectiveScale + canvasWidth / 2;
+                const screenY = (obj.y - dronePitchEffect) * perspectiveScale;
+                const objRenderWidth = obj.width * perspectiveScale; const objRenderHeight = obj.height * perspectiveScale;
+                if (screenX + objRenderWidth > 0 && screenX < canvasWidth && screenY + objRenderHeight > horizonY && screenY < canvasHeight) {
+                    ctx.fillStyle = obj.color;
+                    ctx.fillRect(screenX - objRenderWidth / 2, screenY - objRenderHeight, objRenderWidth, objRenderHeight);
+                }
+            });
+        }
+        function returnControlToOperator(forced = false) {
+            if (!currentManuallyControlledDroneId) return;
+            const drone = drones.find(d => d.id === currentManuallyControlledDroneId);
+            if (drone) {
+                drone.state = (forced || !drone.previousState || drone.previousState === 'manual') ? 'idle' : drone.previousState;
+                drone.target = forced ? { ...drone.dockLocation } : drone.previousTarget;
+                if (forced) drone.path = [];
+                addCommsLog(`Drone ${drone.id} control returned to ${drone.state} mode by FPV Operator.`, "DroneOperator");
+                showToast(`Control of ${drone.id} returned to ${drone.state} mode.`, "info");
+                const releasedDroneId = drone.id;
+                currentManuallyControlledDroneId = null;
+                setupFpvView();
+                showToast(`FPV Operator released control of ${releasedDroneId}. Drone now in ${drone.state}.`, "info", 7000, {
+                    text: "View Drone (Operator)",
+                    action: () => {
+                        if (currentRole !== 'Operator') { if (rolePicker) rolePicker.value = "Operator"; switchRole("Operator"); }
+                        setTimeout(() => openDroneDrawer(releasedDroneId), 100);
+                    }
+                });
+            }
+        }
+
+        // ---------- DIRECTOR ACTIONS ----------
+        function directorDeclareEmergency(autoTriggered = false) {
+            if (isEmergencyActive && !autoTriggered) {
+                isEmergencyActive = false; if (statusStrip) statusStrip.classList.remove('emergency-active');
+                addCommsLog("Museum Emergency status DEACTIVATED by Director.", "Director");
+                showToast("Emergency Mode Deactivated.", "warning");
+            } else {
+                isEmergencyActive = true; if (statusStrip) statusStrip.classList.add('emergency-active');
+                addCommsLog("Museum Emergency DECLARED by Director" + (autoTriggered ? " (auto-triggered by panic)" : "") + "!", "Director");
+                showToast("🚨 MUSEUM EMERGENCY DECLARED! 🚨 All available units respond accordingly.", "critical", 15000);
+            }
+            updateStatusStripAndKPIs();
+        }
+        function directorInitiateLockdown() {
+            isLockdownActive = !isLockdownActive;
+            addCommsLog(`Museum Lockdown Protocol ${isLockdownActive ? 'INITIATED' : 'LIFTED'} by Director.`, "Director");
+            showToast(`Museum Lockdown Protocol ${isLockdownActive ? 'INITIATED' : 'LIFTED'}.`, isLockdownActive ? "warning" : "info");
+        }
+        function directorRequestExternalSupport() {
+            addCommsLog("Director requested EXTERNAL SUPPORT (Police/Fire). Mock dispatch initiated.", "Director");
+            showToast("External Support (Police/Fire) Requested. This is a mock confirmation.", "critical", 10000);
+        }
+
+        // ---------- KEYBOARD SHORTCUTS ----------
+        function handleKeyPress(event) {
+            if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') return;
+            if (currentRole === 'Operator') {
+                const key = event.key.toUpperCase();
+                if (key === 'M' && selectedDroneIdForPanel) { toggleManualDroneControl(selectedDroneIdForPanel); event.preventDefault(); }
+            } else if (currentRole === 'DroneOperator' && currentManuallyControlledDroneId) {
+                const drone = drones.find(d => d.id === currentManuallyControlledDroneId);
+                if (drone && drone.state === 'manual') {
+                    let moved = false; const FPV_MOVE_INCREMENT = DRONE_MANUAL_SPEED * 2;
+                    if (event.key === "ArrowUp") { drone.y -= FPV_MOVE_INCREMENT; moved = true; }
+                    else if (event.key === "ArrowDown") { drone.y += FPV_MOVE_INCREMENT; moved = true; }
+                    else if (event.key === "ArrowLeft") { drone.x -= FPV_MOVE_INCREMENT; moved = true; }
+                    else if (event.key === "ArrowRight") { drone.x += FPV_MOVE_INCREMENT; moved = true; }
+                    if (moved) {
+                        drone.x = Math.max(0, Math.min(MAP_WIDTH, drone.x));
+                        drone.y = Math.max(0, Math.min(MAP_HEIGHT, drone.y));
+                        drone.currentRoom = getRoomForCoords(drone.x, drone.y);
+                        updateFpvTelemetry(drone); renderFpv(); renderDroneOperatorMiniMap();
+                        if (views.Operator && !views.Operator.classList.contains('hide')) updateDroneChips();
+                        event.preventDefault();
+                    }
+                }
+            }
+        }
+
+        // ---------- INITIALIZATION ----------
+        document.addEventListener('DOMContentLoaded', () => {
+            createToastContainer();
+            initializeDrones();
+
+            rolePicker = document.getElementById('rolePicker');
+            statusStrip = document.getElementById('statusStrip');
+            statusCriticalAlerts = document.getElementById('criticalAlertsCount'); statusDronesReady = document.getElementById('dronesReadyCount');
+            statusDronesTotal = document.getElementById('dronesTotalCount'); statusGuardsPatrol = document.getElementById('guardsOnPatrolCount');
+            statusGuardsOnline = document.getElementById('guardsOnlineCount'); statusLastSync = document.getElementById('lastSyncTime');
+
+            views = {
+                Director: document.getElementById('directorView'),
+                Operator: document.getElementById('operatorView'),
+                Analyst: document.getElementById('analystViewContainer'),
+                Supervisor: document.getElementById('supervisorViewContainer'),
+                DroneOperator: document.getElementById('droneOperatorView')
+            };
+
+            floorPlanSvg = document.getElementById('floorPlanSvg'); mapContainer = document.getElementById('mapContainer');
+            directorMapContainer = document.getElementById('directorMapContainer'); supervisorMapContainer = document.getElementById('supervisorMapContainer');
+            droneOperatorMapContainer = document.getElementById('droneOperatorMapContainer');
+
+            patrolComposerCanvas = document.getElementById('patrolComposerCanvas'); patrolComposeBtn = document.getElementById('patrolComposeBtn');
+            patrolDroneSelect = document.getElementById('patrolDroneSelect'); patrolSnapToCenterCheckbox = document.getElementById('patrolSnapToCenter');
+            patrolDeleteLastBtn = document.getElementById('patrolDeleteLastPointBtn'); patrolClearCurrentBtn = document.getElementById('patrolClearCurrentBtn');
+
+            alertFeedTableBody = document.getElementById('alertFeedTable')?.getElementsByTagName('tbody')[0];
+            directorCriticalAlertsTableBody = document.getElementById('directorCriticalAlertsTable')?.getElementsByTagName('tbody')[0];
+            supervisorAlertFeedTableBody = document.getElementById('supervisorAlertFeedTable')?.getElementsByTagName('tbody')[0];
+            analystAlertFeedTableBody = document.getElementById('analystAlertFeedTable')?.getElementsByTagName('tbody')[0];
+
+            operatorFilterSeverity = document.getElementById('operatorFilterSeverity'); operatorFilterStatus = document.getElementById('operatorFilterStatus'); operatorFilterRoom = document.getElementById('operatorFilterRoom'); operatorApplyFiltersBtn = document.getElementById('operatorApplyFiltersBtn');
+            supervisorFilterSeverity = document.getElementById('supervisorFilterSeverity'); supervisorFilterStatus = document.getElementById('supervisorFilterStatus'); supervisorFilterRoom = document.getElementById('supervisorFilterRoom'); supervisorApplyFiltersBtn = document.getElementById('supervisorApplyFiltersBtn');
+            analystFilterSeverity = document.getElementById('analystFilterSeverity'); analystFilterStatus = document.getElementById('analystFilterStatus'); analystFilterRoom = document.getElementById('analystFilterRoom'); analystApplyFiltersBtn = document.getElementById('analystApplyFiltersBtn');
+            [operatorFilterRoom, supervisorFilterRoom, analystFilterRoom].forEach(s => {
+                if (s) Object.keys(ROOMS).forEach(r => { const o = document.createElement('option'); o.value = r; o.textContent = r; s.appendChild(o); })
+            });
+
+            droneDrawer = document.getElementById('droneDrawer'); droneDrawerTitle = document.getElementById('droneDrawerTitle');
+            droneDrawerStatus = document.getElementById('droneDrawerStatus'); droneDrawerBattery = document.getElementById('droneDrawerBattery');
+            droneDrawerBatteryBar = document.getElementById('droneDrawerBatteryBar'); droneDrawerManualToggleBtn = document.getElementById('droneDrawerManualToggleBtn');
+            droneDrawerReturnToBoxBtn = document.getElementById('droneDrawerReturnToBoxBtn');
+
+            contextDrawer = document.getElementById('contextDrawer'); contextAlertId = document.getElementById('contextAlertId');
+            contextAlertTime = document.getElementById('contextAlertTime'); contextAlertRoom = document.getElementById('contextAlertRoom');
+            contextAlertSeverity = document.getElementById('contextAlertSeverity'); contextAlertText = document.getElementById('contextAlertText');
+            contextDroneCandidateList = document.getElementById('contextDroneCandidateList'); contextDispatchBtn = document.getElementById('contextDispatchBtn');
+
+            quickTriagePanelModule = document.getElementById('quickTriagePanelModule'); quickTriageAlertIdEl = document.getElementById('quickTriageAlertId');
+            quickTriageAcknowledgeBtn = document.getElementById('quickTriageAcknowledge'); quickTriageDispatchBtn = document.getElementById('quickTriageDispatch');
+            quickTriageMarkFalseBtn = document.getElementById('quickTriageMarkFalse'); quickTriageOpenContextDrawerBtn = document.getElementById('quickTriageOpenContextDrawer');
+
+            aiChatMessages = document.getElementById('aiChatMessages'); aiChatInput = document.getElementById('aiChatInput'); aiChatSendBtn = document.getElementById('aiChatSend');
+
+            initSensorCharts();
+            analystSelectedAlertIdEl = document.getElementById('analystSelectedAlertId');
+            labelAlertTrueBtn = document.getElementById('labelAlertTrueBtn'); labelAlertFalseBtn = document.getElementById('labelAlertFalseBtn');
+            aiInsightsContentEl = document.getElementById('aiInsightsContent'); droneIntelContentEl = document.getElementById('droneIntelContent');
+            analystShareIntelBtnEl = document.getElementById('analystShareIntelBtn');
+
+            analystIncidentTimelineTableBody = document.getElementById('analystIncidentTimelineTable')?.getElementsByTagName('tbody')[0];
+            supervisorIncidentTimelineTableBody = document.getElementById('supervisorIncidentTimelineTable')?.getElementsByTagName('tbody')[0];
+            commsLogContainerSupervisor = document.getElementById('commsLogContainerSupervisor');
+            directorCommsLogContainerEl = document.getElementById('directorCommsLogContainer');
+
+            guardListEl = document.getElementById('guardList'); guardDetailsPanel = document.getElementById('guardDetailsPanel');
+            detailGuardName = document.getElementById('detailGuardName'); detailGuardStatus = document.getElementById('detailGuardStatus');
+            assignGuardToAlertBtn = document.getElementById('assignGuardToAlertBtn'); customGuardMessageInput = document.getElementById('customGuardMessageInput');
+            sendGuardMessageBtn = document.getElementById('sendGuardMessageBtn');
+            supervisorShiftNotesEl = document.getElementById('supervisorShiftNotes');
+            saveShiftNotesBtnEl = document.getElementById('saveShiftNotesBtn');
+
+
+            supervisorAlertActions = document.getElementById('supervisorAlertActions'); supervisorAssignGuardBtn = document.getElementById('supervisorAssignGuardBtn');
+            supervisorRequestDroneBtn = document.getElementById('supervisorRequestDroneBtn'); supervisorSelectedAlertIdDisplayEl = document.getElementById('supervisorSelectedAlertIdDisplay');
+            supervisorAckAlertBtn = document.getElementById('supervisorAckAlertBtn'); supervisorFalseAlarmAlertBtn = document.getElementById('supervisorFalseAlarmAlertBtn');
+
+            fpvCanvas = document.getElementById('fpvCanvas');
+            fpvDroneIdEl = document.getElementById('fpvDroneId');
+            fpvDroneStatusEl = document.getElementById('fpvDroneStatus');
+            fpvDroneBatteryEl = document.getElementById('fpvDroneBattery');
+            fpvDroneRoomEl = document.getElementById('fpvDroneRoom');
+            fpvReturnControlBtn = document.getElementById('fpvReturnControlBtn');
+
+            kpiTotalAlertsEl = document.getElementById('kpiTotalAlerts'); kpiCriticalOpenEl = document.getElementById('kpiCriticalOpen');
+            kpiDronesActiveEl = document.getElementById('kpiDronesActive'); kpiGuardsRespondingEl = document.getElementById('kpiGuardsResponding');
+
+            directorDroneHealthContainerEl = document.getElementById('directorDroneHealthContainer');
+            operatorDroneHealthContainerEl = document.getElementById('operatorDroneHealthContainer');
+            analystDroneHealthContainerEl = document.getElementById('analystDroneHealthContainer');
+
+            directorDeclareEmergencyBtn = document.getElementById('directorDeclareEmergencyBtn');
+            directorLockdownBtn = document.getElementById('directorLockdownBtn');
+            directorRequestExternalSupportBtn = document.getElementById('directorRequestExternalSupportBtn');
+
+            // Event Listeners
+            if (rolePicker) rolePicker.addEventListener('change', (e) => switchRole(e.target.value));
+            if (droneDrawerManualToggleBtn) droneDrawerManualToggleBtn.addEventListener('click', () => { if (selectedDroneIdForPanel) toggleManualDroneControl(selectedDroneIdForPanel); });
+            if (droneDrawerReturnToBoxBtn) droneDrawerReturnToBoxBtn.addEventListener('click', () => {
+                if (!selectedDroneIdForPanel) return; const drone = drones.find(d => d.id === selectedDroneIdForPanel);
+                if (drone) {
+                    drone.state = 'returning_to_box'; drone.target = { ...drone.dockLocation }; drone.path = [];
+                    addCommsLog(`Drone ${drone.id} returning to box.`, currentRole); closeDroneDrawer();
+                    if (currentRole === 'Operator') updateDroneChips();
+                }
+            });
+            if (contextDispatchBtn) contextDispatchBtn.addEventListener('click', () => {
+                if (selectedAlertId && selectedDroneIdForDispatch) dispatchDroneToAlert(selectedDroneIdForDispatch, selectedAlertId);
+                else showToast("Please select a drone from the candidate list first.", "warning");
+            });
+            if (quickTriageAcknowledgeBtn) quickTriageAcknowledgeBtn.addEventListener('click', () => { if (selectedAlertId) acknowledgeAlert(selectedAlertId, 'acknowledged_by_operator', 'Operator'); });
+            if (quickTriageDispatchBtn) quickTriageDispatchBtn.addEventListener('click', () => {
+                if (selectedAlertId) {
+                    const alert = alerts.find(a => a.id === selectedAlertId); if (!alert) return;
+                    const candidates = findDroneCandidates(alert);
+                    if (candidates.length > 0) dispatchDroneToAlert(candidates[0].id, selectedAlertId);
+                    else { addCommsLog(`Quick Dispatch: No suitable drone for alert ${selectedAlertId}.`, "Operator"); showToast("No suitable drone available for dispatch.", "info"); }
+                }
+            });
+            if (quickTriageMarkFalseBtn) quickTriageMarkFalseBtn.addEventListener('click', () => { if (selectedAlertId) acknowledgeAlert(selectedAlertId, 'false_alarm_by_operator', 'Operator'); });
+            if (quickTriageOpenContextDrawerBtn) quickTriageOpenContextDrawerBtn.addEventListener('click', openContextDrawerForSelectedAlert);
+            if (aiChatSendBtn) aiChatSendBtn.addEventListener('click', handleAIChat);
+            if (aiChatInput) aiChatInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleAIChat(); });
+            if (patrolComposeBtn) patrolComposeBtn.addEventListener('click', togglePatrolComposing);
+            if (patrolComposerCanvas) patrolComposerCanvas.addEventListener('click', handlePatrolCanvasClick);
+            if (patrolDeleteLastBtn) patrolDeleteLastBtn.addEventListener('click', deleteLastPatrolWaypoint);
+            if (patrolClearCurrentBtn) patrolClearCurrentBtn.addEventListener('click', clearCurrentPatrolPath);
+            if (labelAlertTrueBtn) labelAlertTrueBtn.addEventListener('click', () => labelSelectedAnalystAlert(true));
+            if (labelAlertFalseBtn) labelAlertFalseBtn.addEventListener('click', () => labelSelectedAnalystAlert(false));
+            if (analystShareIntelBtnEl) analystShareIntelBtnEl.addEventListener('click', analystShareIntel);
+            const exportBtnAnalyst = document.getElementById('exportTimelineCsvBtnAnalyst');
+            if (exportBtnAnalyst) exportBtnAnalyst.addEventListener('click', exportTimelineToCSV);
+            const exportBtnSupervisor = document.getElementById('exportTimelineCsvBtnSupervisor');
+            if (exportBtnSupervisor) exportBtnSupervisor.addEventListener('click', exportTimelineToCSV);
+            if (assignGuardToAlertBtn) assignGuardToAlertBtn.addEventListener('click', assignSelectedGuardToSelectedAlert);
+            if (sendGuardMessageBtn) sendGuardMessageBtn.addEventListener('click', sendCustomMessageToGuard);
+            if (saveShiftNotesBtnEl) saveShiftNotesBtnEl.addEventListener('click', saveSupervisorShiftNotes);
+            if (supervisorAssignGuardBtn) supervisorAssignGuardBtn.addEventListener('click', supervisorAssignNearestGuard);
+            if (supervisorRequestDroneBtn) supervisorRequestDroneBtn.addEventListener('click', supervisorRequestDroneSupport);
+            if (supervisorAckAlertBtn) supervisorAckAlertBtn.addEventListener('click', () => { if (selectedAlertIdSupervisor) acknowledgeAlert(selectedAlertIdSupervisor, 'acknowledged_by_supervisor', 'Supervisor'); });
+            if (supervisorFalseAlarmAlertBtn) supervisorFalseAlarmAlertBtn.addEventListener('click', () => { if (selectedAlertIdSupervisor) acknowledgeAlert(selectedAlertIdSupervisor, 'false_alarm_by_supervisor', 'Supervisor'); });
+            if (fpvReturnControlBtn) fpvReturnControlBtn.addEventListener('click', () => returnControlToOperator(false));
+            if (directorDeclareEmergencyBtn) directorDeclareEmergencyBtn.addEventListener('click', () => directorDeclareEmergency(false));
+            if (directorLockdownBtn) directorLockdownBtn.addEventListener('click', directorInitiateLockdown);
+            if (directorRequestExternalSupportBtn) directorRequestExternalSupportBtn.addEventListener('click', directorRequestExternalSupport);
+            if (operatorApplyFiltersBtn) operatorApplyFiltersBtn.addEventListener('click', () => { if (alertFeedTableBody) renderAlertFeed(alerts, alertFeedTableBody, selectAlertOperator, selectedAlertId, getOperatorFilters()); });
+            if (supervisorApplyFiltersBtn) supervisorApplyFiltersBtn.addEventListener('click', () => { if (supervisorAlertFeedTableBody) renderAlertFeed(alerts, supervisorAlertFeedTableBody, selectAlertSupervisor, selectedAlertIdSupervisor, getSupervisorFilters()); });
+            if (analystApplyFiltersBtn) analystApplyFiltersBtn.addEventListener('click', () => { if (analystAlertFeedTableBody) renderAlertFeed(alerts, analystAlertFeedTableBody, selectAlertAnalyst, selectedAlertIdAnalyst, getAnalystFilters()); });
+
+            document.addEventListener('keydown', handleKeyPress);
+            if (mapContainer) new ResizeObserver(resizePatrolCanvas).observe(mapContainer);
+            if (fpvCanvas && fpvCanvas.parentElement) {
+                const rect = fpvCanvas.parentElement.getBoundingClientRect();
+                fpvCanvas.width = rect.width; fpvCanvas.height = rect.height;
+                new ResizeObserver(() => {
+                    if (fpvCanvas && fpvCanvas.parentElement) {
+                        const currentRect = fpvCanvas.parentElement.getBoundingClientRect();
+                        fpvCanvas.width = currentRect.width;
+                        fpvCanvas.height = currentRect.height;
+                        if (currentRole === 'DroneOperator' && currentManuallyControlledDroneId) {
+                            renderFpv();
+                        }
+                    }
+                }).observe(fpvCanvas.parentElement);
+            }
+
+            // Initial setup
+            switchRole(rolePicker.value);
+            renderFloorPlan(); populatePatrolDroneSelect();
+            pushRandomAlert();
+            setInterval(pushRandomAlert, 30000);
+            setInterval(updateDrones, 200);
+            setInterval(updateStatusStripAndKPIs, 1000);
+            setInterval(updateSensorCharts, 500);
+            setInterval(updateGuards, 3000);
+            renderIncidentTimeline();
+            addCommsLog("System initialized. FlytBase Museum Security v2.3.4.", "System");
+            showToast("Welcome to Museum Security System v2.3.4!", "info", 5000);
+        });
+    </script>
+</body>
+
+</html>
